@@ -697,7 +697,7 @@ const SCENES = {
       {text:'前往书房', next:'study'},
       {text:'前往卧室', next:'bedroom'},
       {text:'下楼梯去祠堂', next:'shrine'},
-      {text:'上楼梯去阁楼', next:'attic', require:'key_red', msg:'阁楼门锁着，需要红绳钥匙'}
+      {text:'上楼梯去阁楼', next:'attic', effect:{san:-5}}
     ]
   },
   hall_corpse: {
@@ -981,7 +981,7 @@ const SCENES = {
       <span class="scare">你听见身后有稚嫩的女童声音：</span><br>
       <b>"大哥哥...她在井里等你...很久很久了..."</b>`,
     choices:[
-      {text:'跟随香烟去地窖', next:'cellar', effect:{san:5}, flag:'prayed'}
+      {text:'跟随香烟去地窖', next:'cellar', effect:{san:5}, flag:'prayed', give:'amulet', msg:'获得护身之物 🪬（桃木符咒可驱邪一次）'}
     ]
   },
   cellar: {
@@ -1224,6 +1224,9 @@ function jumpscare(emoji='💀') {
 function hasItem(id) { return state.inventory.includes(id); }
 function hasFlag(f) { return state.flags.includes(f); }
 function hasClue(c) { return state.cluesFound.includes(c); }
+
+// 快捷取DOM
+const $ = (id) => document.getElementById(id);
 
 // ---------- 渲染 ----------
 function render() {
