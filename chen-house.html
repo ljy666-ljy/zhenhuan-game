@@ -173,33 +173,49 @@ class HorrorMusic {
     this.mood = 'calm';
     this.timers = [];
     this.sources = [];
+    this.globalVol = 0.35;
   }
   init() {
     if (this.ctx) return;
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     this.master = this.ctx.createGain();
-    this.master.gain.value = 0.25;
+    this.master.gain.value = this.globalVol;
     this.master.connect(this.ctx.destination);
+    // 压缩器让音效更密集更有冲击力
+    this.compressor = this.ctx.createDynamicsCompressor();
+    this.compressor.threshold.value = -30;
+    this.compressor.knee.value = 20;
+    this.compressor.ratio.value = 4;
+    this.master.connect(this.compressor);
+    this.compressor.connect(this.ctx.destination);
   }
-  // 低频持续音（drone）- 营造压迫感
-  startDrone(freq, vol=0.15) {
+  // 音频工具：创建噪声buffer
+  _noiseBuf(dur=1) {
+    if (!this.ctx) return null;
+    const buf = this.ctx.createBuffer(1, dur * this.ctx.sampleRate, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    return buf;
+  }
+  // 低频持续音（drone）- 多倍频叠加
+  startDrone(freq, vol=0.15, type='sawtooth') {
     if (!this.ctx) return;
     const osc = this.ctx.createOscillator();
-    osc.type = 'sawtooth';
+    osc.type = type;
     osc.frequency.value = freq;
     const filter = this.ctx.createBiquadFilter();
     filter.type = 'lowpass';
-    filter.frequency.value = 200;
+    filter.frequency.value = 250;
     const g = this.ctx.createGain();
     g.gain.value = 0;
     g.gain.linearRampToValueAtTime(vol, this.ctx.currentTime + 2);
     // 添加LFO让音色颤动
     const lfo = this.ctx.createOscillator();
-    lfo.frequency.value = 0.3;
-    const lfoGain = this.ctx.createGain();
-    lfoGain.gain.value = 5;
-    lfo.connect(lfoGain);
-    lfoGain.connect(osc.frequency);
+    lfo.frequency.value = 0.2 + Math.random() * 0.3;
+    const lfoG = this.ctx.createGain();
+    lfoG.gain.value = 4 + Math.random() * 3;
+    lfo.connect(lfoG);
+    lfoG.connect(osc.frequency);
     osc.connect(filter);
     filter.connect(g);
     g.connect(this.master);
@@ -207,18 +223,19 @@ class HorrorMusic {
     lfo.start();
     this.sources.push(osc, lfo);
   }
-  // 心跳声
-  heartbeat() {
+  // 心跳声（可变速）
+  heartbeat(speed=1) {
     if (!this.ctx || !this.playing) return;
     const t = this.ctx.currentTime;
+    const interval = 0.18 / speed;
     const beat = (time) => {
       const osc = this.ctx.createOscillator();
       osc.type = 'sine';
-      osc.frequency.value = 60;
-      osc.frequency.exponentialRampToValueAtTime(30, time + 0.1);
+      osc.frequency.value = 80;
+      osc.frequency.exponentialRampToValueAtTime(20, time + 0.12);
       const g = this.ctx.createGain();
       g.gain.setValueAtTime(0, time);
-      g.gain.linearRampToValueAtTime(0.5, time + 0.01);
+      g.gain.linearRampToValueAtTime(0.7 * speed, time + 0.01);
       g.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
       osc.connect(g);
       g.connect(this.master);
@@ -226,22 +243,23 @@ class HorrorMusic {
       osc.stop(time + 0.2);
     };
     beat(t);
-    beat(t + 0.25);
+    beat(t + interval);
   }
-  // 尖啸（不和谐高频）
-  screech() {
+  // 尖啸（多频率叠加，更刺耳）
+  screech(intensity=1) {
     if (!this.ctx || !this.playing) return;
     const t = this.ctx.currentTime;
-    const freqs = [2000, 2350, 2780, 3100];
+    const b = intensity;
+    const freqs = [2000*b, 2700*b, 3200*b, 3800*b];
     freqs.forEach((f, i) => {
       const osc = this.ctx.createOscillator();
       osc.type = 'sawtooth';
       osc.frequency.value = f;
-      osc.frequency.linearRampToValueAtTime(f * 1.2, t + 0.5);
+      osc.frequency.linearRampToValueAtTime(f * 1.4, t + 0.4);
       const g = this.ctx.createGain();
       g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.08, t + 0.05);
-      g.gain.linearRampToValueAtTime(0, t + 0.6);
+      g.gain.linearRampToValueAtTime(0.15 * b, t + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
       const filter = this.ctx.createBiquadFilter();
       filter.type = 'highpass';
       filter.frequency.value = 1500;
@@ -252,30 +270,28 @@ class HorrorMusic {
       osc.stop(t + 0.7);
     });
   }
-  // 雨声（白噪声滤波）
+  // 雨声（更大音量，更密集）
   rain() {
     if (!this.ctx) return;
-    const bufferSize = 2 * this.ctx.sampleRate;
-    const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-    const output = noiseBuffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) output[i] = Math.random() * 2 - 1;
+    const buf = this._noiseBuf(4);
+    if (!buf) return;
     const noise = this.ctx.createBufferSource();
-    noise.buffer = noiseBuffer;
+    noise.buffer = buf;
     noise.loop = true;
     const filter = this.ctx.createBiquadFilter();
     filter.type = 'bandpass';
-    filter.frequency.value = 1000;
-    filter.Q.value = 0.5;
+    filter.frequency.value = 800;
+    filter.Q.value = 0.4;
     const g = this.ctx.createGain();
-    g.gain.value = 0.08;
+    g.gain.value = 0.12;
     noise.connect(filter);
     filter.connect(g);
     g.connect(this.master);
     noise.start();
     this.sources.push(noise);
   }
-  // 钟声（事件触发）
-  bell(freq=440) {
+  // 钟声
+  bell(freq=440, vol=0.3) {
     if (!this.ctx || !this.playing) return;
     const t = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
@@ -283,177 +299,342 @@ class HorrorMusic {
     osc.frequency.value = freq;
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(0.3, t + 0.005);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 2);
+    g.gain.linearRampToValueAtTime(vol, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 3);
     osc.connect(g);
     g.connect(this.master);
     osc.start(t);
-    osc.stop(t + 2);
+    osc.stop(t + 3.1);
   }
-  // 次声波（18Hz，人耳听不到但引起不安/恐惧）
+  // 次声波（多频率叠加，引起极度不安）
   infrasound() {
     if (!this.ctx) return;
-    const osc = this.ctx.createOscillator();
-    osc.type = 'sine';
-    osc.frequency.value = 18;
-    const g = this.ctx.createGain();
-    g.gain.value = 0.4;
-    osc.connect(g);
-    g.connect(this.master);
-    osc.start();
-    this.sources.push(osc);
+    [16, 19, 23, 28].forEach((f, i) => {
+      const osc = this.ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = f;
+      const g = this.ctx.createGain();
+      g.gain.value = 0.3 + i * 0.05;
+      osc.connect(g);
+      g.connect(this.master);
+      osc.start();
+      this.sources.push(osc);
+    });
   }
-  // 耳语声（白噪声+共振峰滤波，模拟人声但听不清）
+  // 耳语（更清晰、更密集）
   whisper() {
     if (!this.ctx || !this.playing) return;
     const t = this.ctx.currentTime;
-    const bufferSize = 1.5 * this.ctx.sampleRate;
-    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+    const buf = this._noiseBuf(1.8);
+    if (!buf) return;
     const noise = this.ctx.createBufferSource();
-    noise.buffer = buffer;
-    // 多个共振峰滤波器模拟人声
-    const formant1 = this.ctx.createBiquadFilter();
-    formant1.type = 'bandpass';
-    formant1.frequency.value = 400;
-    formant1.Q.value = 8;
-    const formant2 = this.ctx.createBiquadFilter();
-    formant2.type = 'bandpass';
-    formant2.frequency.value = 1200;
-    formant2.Q.value = 10;
-    const formant3 = this.ctx.createBiquadFilter();
-    formant3.type = 'bandpass';
-    formant3.frequency.value = 2200;
-    formant3.Q.value = 12;
-    const merger = this.ctx.createGain();
-    merger.gain.value = 0.5;
-    noise.connect(formant1); formant1.connect(merger);
-    noise.connect(formant2); formant2.connect(merger);
-    noise.connect(formant3); formant3.connect(merger);
+    noise.buffer = buf;
+    const f1 = this.ctx.createBiquadFilter();
+    f1.type = 'bandpass';
+    f1.frequency.value = 400 + Math.random() * 200;
+    f1.Q.value = 10;
+    const f2 = this.ctx.createBiquadFilter();
+    f2.type = 'bandpass';
+    f2.frequency.value = 1200 + Math.random() * 400;
+    f2.Q.value = 12;
+    const f3 = this.ctx.createBiquadFilter();
+    f3.type = 'bandpass';
+    f3.frequency.value = 2500 + Math.random() * 500;
+    f3.Q.value = 14;
+    const merge = this.ctx.createGain();
+    merge.gain.value = 0.6;
+    noise.connect(f1); f1.connect(merge);
+    noise.connect(f2); f2.connect(merge);
+    noise.connect(f3); f3.connect(merge);
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(0.12, t + 0.3);
-    g.gain.linearRampToValueAtTime(0.08, t + 0.8);
-    g.gain.linearRampToValueAtTime(0, t + 1.5);
-    // LFO让音量起伏，像在说话
+    g.gain.linearRampToValueAtTime(0.18, t + 0.2);
+    g.gain.linearRampToValueAtTime(0.12, t + 0.6);
+    g.gain.linearRampToValueAtTime(0, t + 1.8);
     const lfo = this.ctx.createOscillator();
-    lfo.frequency.value = 5;
-    const lfoGain = this.ctx.createGain();
-    lfoGain.gain.value = 0.06;
-    lfo.connect(lfoGain);
-    lfoGain.connect(g.gain);
-    merger.connect(g);
+    lfo.frequency.value = 4 + Math.random() * 3;
+    const lfoG = this.ctx.createGain();
+    lfoG.gain.value = 0.08;
+    lfo.connect(lfoG);
+    lfoG.connect(g.gain);
+    merge.connect(g);
     g.connect(this.master);
-    noise.start(t);
-    lfo.start(t);
-    noise.stop(t + 1.6);
-    lfo.stop(t + 1.6);
+    noise.start(t); lfo.start(t);
+    noise.stop(t + 1.9); lfo.stop(t + 1.9);
   }
-  // 呼吸声（低频脉冲+气流噪声）
-  breath() {
+  // 呼吸声（更急促）
+  breathe() {
     if (!this.ctx || !this.playing) return;
     const t = this.ctx.currentTime;
-    // 吸气（高频噪声短促）
-    const inhaleBuf = this.ctx.createBuffer(1, 0.5 * this.ctx.sampleRate, this.ctx.sampleRate);
-    const inhaleData = inhaleBuf.getChannelData(0);
-    for (let i = 0; i < inhaleData.length; i++) inhaleData[i] = (Math.random() * 2 - 1) * (1 - i/inhaleData.length);
+    const buf = this._noiseBuf(0.5);
+    if (!buf) return;
     const inhale = this.ctx.createBufferSource();
-    inhale.buffer = inhaleBuf;
-    const inhaleFilter = this.ctx.createBiquadFilter();
-    inhaleFilter.type = 'bandpass';
-    inhaleFilter.frequency.value = 800;
-    const inhaleG = this.ctx.createGain();
-    inhaleG.gain.setValueAtTime(0, t);
-    inhaleG.gain.linearRampToValueAtTime(0.15, t + 0.1);
-    inhaleG.gain.linearRampToValueAtTime(0, t + 0.4);
-    inhale.connect(inhaleFilter); inhaleFilter.connect(inhaleG); inhaleG.connect(this.master);
-    inhale.start(t);
-    inhale.stop(t + 0.5);
-    // 呼气（延迟0.5秒）
-    const exhaleBuf = this.ctx.createBuffer(1, 0.8 * this.ctx.sampleRate, this.ctx.sampleRate);
-    const exhaleData = exhaleBuf.getChannelData(0);
-    for (let i = 0; i < exhaleData.length; i++) exhaleData[i] = (Math.random() * 2 - 1);
+    inhale.buffer = buf;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = 700 + Math.random() * 300;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.2, t + 0.08);
+    g.gain.linearRampToValueAtTime(0, t + 0.35);
+    inhale.connect(filter); filter.connect(g); g.connect(this.master);
+    inhale.start(t); inhale.stop(t + 0.4);
+    // 呼气
     const exhale = this.ctx.createBufferSource();
-    exhale.buffer = exhaleBuf;
-    const exhaleFilter = this.ctx.createBiquadFilter();
-    exhaleFilter.type = 'bandpass';
-    exhaleFilter.frequency.value = 500;
-    const exhaleG = this.ctx.createGain();
-    exhaleG.gain.setValueAtTime(0, t + 0.5);
-    exhaleG.gain.linearRampToValueAtTime(0.12, t + 0.7);
-    exhaleG.gain.linearRampToValueAtTime(0, t + 1.3);
-    exhale.connect(exhaleFilter); exhaleFilter.connect(exhaleG); exhaleG.connect(this.master);
-    exhale.start(t + 0.5);
-    exhale.stop(t + 1.4);
+    exhale.buffer = buf;
+    exhale.playbackRate.value = 0.7;
+    const filter2 = this.ctx.createBiquadFilter();
+    filter2.type = 'bandpass';
+    filter2.frequency.value = 400 + Math.random() * 200;
+    const g2 = this.ctx.createGain();
+    g2.gain.setValueAtTime(0, t + 0.4);
+    g2.gain.linearRampToValueAtTime(0.15, t + 0.6);
+    g2.gain.linearRampToValueAtTime(0, t + 1.0);
+    exhale.connect(filter2); filter2.connect(g2); g2.connect(this.master);
+    exhale.start(t + 0.4); exhale.stop(t + 1.1);
   }
-  // 不和谐钢琴音（多个相近半音同时响）
+  // 不和谐钢琴（更多半音同时响起）
   dissonantPiano() {
     if (!this.ctx || !this.playing) return;
     const t = this.ctx.currentTime;
-    // 三全音（魔鬼音程）+ 半音
-    const freqs = [130.81, 138.59, 185.00, 196.00]; // C3, C#3, F#3, G3
-    freqs.forEach(f => {
+    const freqs = [123.47, 130.81, 138.59, 185.00, 196.00, 207.65];
+    freqs.forEach((f, i) => {
       const osc = this.ctx.createOscillator();
       osc.type = 'triangle';
       osc.frequency.value = f;
       const g = this.ctx.createGain();
       g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.10, t + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 3);
+      g.gain.linearRampToValueAtTime(0.08, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 2.5 + Math.random() * 1.5);
       osc.connect(g);
       g.connect(this.master);
       osc.start(t);
-      osc.stop(t + 3.1);
+      osc.stop(t + 4);
     });
   }
-  // 弦乐滑音（像指甲刮玻璃，刺耳）
+  // 金属滑音（更高频，更刺耳）
   glassScrape() {
     if (!this.ctx || !this.playing) return;
     const t = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(3000, t);
-    osc.frequency.exponentialRampToValueAtTime(6000, t + 0.8);
-    osc.frequency.exponentialRampToValueAtTime(1500, t + 1.5);
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(4000, t);
+    osc.frequency.linearRampToValueAtTime(8000, t + 0.6);
+    osc.frequency.linearRampToValueAtTime(1000, t + 1.8);
     const filter = this.ctx.createBiquadFilter();
     filter.type = 'bandpass';
-    filter.frequency.value = 4000;
-    filter.Q.value = 20;
+    filter.frequency.value = 5000;
+    filter.Q.value = 30;
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(0.10, t + 0.05);
-    g.gain.linearRampToValueAtTime(0.05, t + 1.0);
-    g.gain.linearRampToValueAtTime(0, t + 1.6);
+    g.gain.linearRampToValueAtTime(0.15, t + 0.03);
+    g.gain.linearRampToValueAtTime(0.08, t + 0.8);
+    g.gain.linearRampToValueAtTime(0, t + 2);
     osc.connect(filter); filter.connect(g); g.connect(this.master);
     osc.start(t);
-    osc.stop(t + 1.7);
+    osc.stop(t + 2.1);
   }
-  // 突然的巨响（跳吓专用）
+  // 跳吓（极强冲击）
   stinger() {
     if (!this.ctx || !this.playing) return;
     const t = this.ctx.currentTime;
-    // 极低频爆发
+    // 低频爆发
     const osc1 = this.ctx.createOscillator();
     osc1.type = 'sawtooth';
-    osc1.frequency.setValueAtTime(80, t);
-    osc1.frequency.exponentialRampToValueAtTime(20, t + 0.5);
+    osc1.frequency.setValueAtTime(120, t);
+    osc1.frequency.exponentialRampToValueAtTime(15, t + 0.8);
     const g1 = this.ctx.createGain();
-    g1.gain.setValueAtTime(0.5, t);
-    g1.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
+    g1.gain.setValueAtTime(0.6, t);
+    g1.gain.exponentialRampToValueAtTime(0.001, t + 1.0);
     osc1.connect(g1); g1.connect(this.master);
-    osc1.start(t); osc1.stop(t + 0.9);
-    // 高频金属碰撞
-    for (let i = 0; i < 5; i++) {
+    osc1.start(t); osc1.stop(t + 1.1);
+    // 高频金属震颤
+    for (let i = 0; i < 8; i++) {
       const osc = this.ctx.createOscillator();
       osc.type = 'square';
-      osc.frequency.value = 2000 + Math.random() * 4000;
+      osc.frequency.value = 1500 + Math.random() * 5000;
       const g = this.ctx.createGain();
-      g.gain.setValueAtTime(0.15, t + Math.random() * 0.1);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.3 + Math.random() * 0.2);
+      g.gain.setValueAtTime(0.2, t + Math.random() * 0.05);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.2 + Math.random() * 0.2);
       osc.connect(g); g.connect(this.master);
-      osc.start(t); osc.stop(t + 0.5);
+      osc.start(t); osc.stop(t + 0.4);
     }
+    // 噪声爆发
+    const buf = this._noiseBuf(0.3);
+    if (buf) {
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = buf;
+      const ng = this.ctx.createGain();
+      ng.gain.setValueAtTime(0.5, t);
+      ng.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+      noise.connect(ng); ng.connect(this.master);
+      noise.start(t); noise.stop(t + 0.5);
+    }
+  }
+  // 【新增】女人哭声
+  crying() {
+    if (!this.ctx || !this.playing) return;
+    const t = this.ctx.currentTime;
+    // 抽取式啜泣 - 用颤音模拟
+    for (let i = 0; i < 8; i++) {
+      const delay = i * 0.35;
+      const osc = this.ctx.createOscillator();
+      osc.type = 'sine';
+      const baseFreq = 280 + Math.random() * 120;
+      osc.frequency.value = baseFreq;
+      osc.frequency.linearRampToValueAtTime(baseFreq * 0.6, t + delay + 0.1);
+      osc.frequency.linearRampToValueAtTime(baseFreq * 0.8, t + delay + 0.2);
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0, t + delay);
+      g.gain.linearRampToValueAtTime(0.12, t + delay + 0.03);
+      g.gain.linearRampToValueAtTime(0.06, t + delay + 0.08);
+      g.gain.linearRampToValueAtTime(0, t + delay + 0.25);
+      osc.connect(g); g.connect(this.master);
+      osc.start(t + delay);
+      osc.stop(t + delay + 0.3);
+    }
+    // 加上低频气声
+    const buf = this._noiseBuf(2.5);
+    if (buf) {
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = buf;
+      noise.playbackRate.value = 0.6;
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = 350;
+      filter.Q.value = 5;
+      const ng = this.ctx.createGain();
+      ng.gain.setValueAtTime(0, t);
+      ng.gain.linearRampToValueAtTime(0.10, t + 0.5);
+      ng.gain.linearRampToValueAtTime(0.05, t + 1.5);
+      ng.gain.linearRampToValueAtTime(0, t + 2.6);
+      noise.connect(filter); filter.connect(ng); ng.connect(this.master);
+      noise.start(t); noise.stop(t + 2.7);
+    }
+  }
+  // 【新增】疯狂笑声
+  laugh() {
+    if (!this.ctx || !this.playing) return;
+    const t = this.ctx.currentTime;
+    for (let i = 0; i < 12; i++) {
+      const delay = i * 0.12;
+      const osc = this.ctx.createOscillator();
+      osc.type = 'triangle';
+      const f = 400 + Math.random() * 800;
+      osc.frequency.value = f;
+      osc.frequency.linearRampToValueAtTime(f * 1.5, t + delay + 0.06);
+      osc.frequency.linearRampToValueAtTime(f * 0.5, t + delay + 0.1);
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0, t + delay);
+      g.gain.linearRampToValueAtTime(0.08, t + delay + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, t + delay + 0.12);
+      osc.connect(g); g.connect(this.master);
+      osc.start(t + delay);
+      osc.stop(t + delay + 0.15);
+    }
+  }
+  // 【新增】敲门声
+  knock() {
+    if (!this.ctx || !this.playing) return;
+    const t = this.ctx.currentTime;
+    for (let i = 0; i < 3; i++) {
+      const delay = i * 0.25;
+      const osc = this.ctx.createOscillator();
+      osc.type = 'square';
+      osc.frequency.value = 200 - i * 30;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0, t + delay);
+      g.gain.linearRampToValueAtTime(0.25, t + delay + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.001, t + delay + 0.08);
+      osc.connect(g); g.connect(this.master);
+      osc.start(t + delay);
+      osc.stop(t + delay + 0.1);
+    }
+  }
+  // 【新增】头顶脚步声
+  footsteps() {
+    if (!this.ctx || !this.playing) return;
+    const t = this.ctx.currentTime;
+    for (let i = 0; i < 5; i++) {
+      const delay = i * (0.5 + Math.random() * 0.4);
+      const osc = this.ctx.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.value = 80 + Math.random() * 40;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0, t + delay);
+      g.gain.linearRampToValueAtTime(0.15, t + delay + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.001, t + delay + 0.04);
+      osc.connect(g); g.connect(this.master);
+      osc.start(t + delay);
+      osc.stop(t + delay + 0.05);
+    }
+  }
+  // 【新增】水滴声
+  drip() {
+    if (!this.ctx || !this.playing) return;
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = 800 + Math.random() * 400;
+    osc.frequency.linearRampToValueAtTime(60, t + 0.15);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.08, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    osc.connect(g); g.connect(this.master);
+    osc.start(t);
+    osc.stop(t + 0.15);
+  }
+  // 【新增】阴森人声合唱
+  choirPad() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const freqs = [110, 138.59, 164.81, 220];
+    freqs.forEach((f, i) => {
+      const osc = this.ctx.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.value = f;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.04 + i * 0.01, t + 1.5);
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = f * 2;
+      filter.Q.value = 3;
+      const lfo = this.ctx.createOscillator();
+      lfo.frequency.value = 0.15 + i * 0.05;
+      const lfoG = this.ctx.createGain();
+      lfoG.gain.value = 2;
+      lfo.connect(lfoG);
+      lfoG.connect(osc.frequency);
+      osc.connect(filter); filter.connect(g); g.connect(this.master);
+      osc.start(t);
+      this.sources.push(osc, lfo);
+    });
+  }
+  // 【新增】风声（高频嘶嘶）
+  windHowl() {
+    if (!this.ctx) return;
+    const buf = this._noiseBuf(3);
+    if (!buf) return;
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buf;
+    noise.loop = true;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.value = 3000;
+    filter.Q.value = 2;
+    const lfo = this.ctx.createOscillator();
+    lfo.frequency.value = 0.5;
+    const lfoG = this.ctx.createGain();
+    lfoG.gain.value = 2000;
+    lfo.connect(lfoG);
+    lfoG.connect(filter.frequency);
+    const g = this.ctx.createGain();
+    g.gain.value = 0.06;
+    noise.connect(filter); filter.connect(g); g.connect(this.master);
+    noise.start(); lfo.start();
+    this.sources.push(noise, lfo);
   }
   start() {
     this.init();
@@ -479,59 +660,83 @@ class HorrorMusic {
   stopSources() {
     this.sources.forEach(s => { try { s.stop(); } catch(e){} });
     this.sources = [];
-    if (this.master) this.master.gain.value = 0.25;
+    if (this.master) this.master.gain.value = this.globalVol;
   }
   startMood(mood) {
     this.mood = mood;
     if (mood === 'calm') {
-      // 表面平静，但次声波已经在影响你
+      // "平静"但次声波不断作用，耳后呼吸，远处哭声
       this.infrasound();
-      this.startDrone(55, 0.12);
-      this.startDrone(82.4, 0.04); // 不和谐五度
+      this.startDrone(55, 0.18);
+      this.startDrone(82.4, 0.06);
       this.rain();
-      this.timers.push(setInterval(() => this.heartbeat(), 2400));
-      this.timers.push(setInterval(() => { if (Math.random() < 0.15) this.whisper(); }, 12000));
-      this.timers.push(setInterval(() => { if (Math.random() < 0.10) this.breath(); }, 15000));
+      this.windHowl();
+      this.timers.push(setInterval(() => this.heartbeat(0.8), 3000));
+      this.timers.push(setInterval(() => { if (Math.random()<0.25) this.whisper(); }, 10000));
+      this.timers.push(setInterval(() => { if (Math.random()<0.2) this.breathe(); }, 12000));
+      this.timers.push(setInterval(() => { if (Math.random()<0.15) this.drip(); }, 8000));
+      this.timers.push(setInterval(() => { if (Math.random()<0.1) this.crying(); }, 20000));
     } else if (mood === 'tense') {
+      // 紧张：心跳加速，耳语频繁，脚步声，水滴，哭声
       this.infrasound();
-      this.startDrone(45, 0.20);
-      this.startDrone(73, 0.08); // 不和谐
-      this.startDrone(110, 0.04); // 高八度
+      this.startDrone(45, 0.25);
+      this.startDrone(73, 0.10);
+      this.startDrone(110, 0.05);
       this.rain();
-      this.timers.push(setInterval(() => this.heartbeat(), 1400));
-      this.timers.push(setInterval(() => { if (Math.random() < 0.35) this.screech(); }, 7000));
-      this.timers.push(setInterval(() => { if (Math.random() < 0.25) this.whisper(); }, 8000));
-      this.timers.push(setInterval(() => { if (Math.random() < 0.20) this.breath(); }, 9000));
-      this.timers.push(setInterval(() => { if (Math.random() < 0.15) this.glassScrape(); }, 11000));
+      this.windHowl();
+      this.choirPad();
+      this.timers.push(setInterval(() => this.heartbeat(1.2), 1600));
+      this.timers.push(setInterval(() => { if (Math.random()<0.40) this.screech(0.8); }, 6000));
+      this.timers.push(setInterval(() => { if (Math.random()<0.35) this.whisper(); }, 6000));
+      this.timers.push(setInterval(() => { if (Math.random()<0.25) this.breathe(); }, 7000));
+      this.timers.push(setInterval(() => { if (Math.random()<0.2) this.glassScrape(); }, 10000));
+      this.timers.push(setInterval(() => { if (Math.random()<0.2) this.drip(); }, 5000));
+      this.timers.push(setInterval(() => { if (Math.random()<0.15) this.footsteps(); }, 12000));
+      this.timers.push(setInterval(() => { if (Math.random()<0.15) this.crying(); }, 15000));
+      this.timers.push(setInterval(() => { if (Math.random()<0.1) this.knock(); }, 18000));
     } else if (mood === 'danger') {
-      // 极度危险：所有恐怖元素叠加
+      // 极度危险：所有恐怖元素全开，高频触发
       this.infrasound();
-      this.startDrone(38, 0.25);
-      this.startDrone(61, 0.12); // 不和谐
-      this.startDrone(91, 0.06); // 三全音
-      this.timers.push(setInterval(() => this.heartbeat(), 700));
-      this.timers.push(setInterval(() => { if (Math.random() < 0.5) this.screech(); }, 3500));
-      this.timers.push(setInterval(() => { if (Math.random() < 0.4) this.whisper(); }, 5000));
-      this.timers.push(setInterval(() => { if (Math.random() < 0.35) this.breath(); }, 4500));
-      this.timers.push(setInterval(() => { if (Math.random() < 0.25) this.glassScrape(); }, 6000));
-      this.timers.push(setInterval(() => { if (Math.random() < 0.20) this.dissonantPiano(); }, 8000));
+      this.startDrone(38, 0.30);
+      this.startDrone(61, 0.15);
+      this.startDrone(91, 0.08);
+      this.choirPad();
+      this.windHowl();
+      this.timers.push(setInterval(() => this.heartbeat(1.8), 800));
+      this.timers.push(setInterval(() => { if (Math.random()<0.55) this.screech(1.2); }, 2500));
+      this.timers.push(setInterval(() => { if (Math.random()<0.5) this.whisper(); }, 3000));
+      this.timers.push(setInterval(() => { if (Math.random()<0.4) this.breathe(); }, 3500));
+      this.timers.push(setInterval(() => { if (Math.random()<0.35) this.glassScrape(); }, 5000));
+      this.timers.push(setInterval(() => { if (Math.random()<0.3) this.dissonantPiano(); }, 6000));
+      this.timers.push(setInterval(() => { if (Math.random()<0.25) this.footsteps(); }, 7000));
+      this.timers.push(setInterval(() => { if (Math.random()<0.25) this.crying(); }, 8000));
+      this.timers.push(setInterval(() => { if (Math.random()<0.2) this.knock(); }, 10000));
+      this.timers.push(setInterval(() => { if (Math.random()<0.15) this.laugh(); }, 12000));
     } else if (mood === 'reveal') {
-      // 真相揭示：庄严又诡异
-      this.startDrone(110, 0.12);
-      this.startDrone(164.8, 0.05);
-      this.timers.push(setInterval(() => this.bell(330), 3000));
-      this.timers.push(setInterval(() => { if (Math.random() < 0.20) this.whisper(); }, 10000));
-      this.timers.push(setInterval(() => { if (Math.random() < 0.15) this.dissonantPiano(); }, 12000));
+      // 真相：阴森但庄严，合唱+钟声+耳语
+      this.startDrone(110, 0.15);
+      this.startDrone(164.8, 0.06);
+      this.choirPad();
+      this.timers.push(setInterval(() => this.bell(300, 0.35), 2500));
+      this.timers.push(setInterval(() => { if (Math.random()<0.35) this.whisper(); }, 6000));
+      this.timers.push(setInterval(() => { if (Math.random()<0.2) this.dissonantPiano(); }, 8000));
+      this.timers.push(setInterval(() => { if (Math.random()<0.15) this.crying(); }, 12000));
     } else if (mood === 'death') {
-      // 死亡：所有恐怖元素达到极致
+      // 死亡：极致恐怖，混乱疯狂
       this.infrasound();
-      this.startDrone(30, 0.35);
-      this.startDrone(42, 0.15);
-      this.timers.push(setInterval(() => this.screech(), 1200));
-      this.timers.push(setInterval(() => this.stinger(), 3000));
-      this.timers.push(setInterval(() => { if (Math.random() < 0.6) this.whisper(); }, 2500));
-      this.timers.push(setInterval(() => { if (Math.random() < 0.5) this.breath(); }, 2000));
-      this.timers.push(setInterval(() => { if (Math.random() < 0.4) this.glassScrape(); }, 4000));
+      this.startDrone(28, 0.40);
+      this.startDrone(39, 0.20);
+      this.startDrone(53, 0.10);
+      this.choirPad();
+      this.timers.push(setInterval(() => this.screech(1.5), 1000));
+      this.timers.push(setInterval(() => this.stinger(), 2500));
+      this.timers.push(setInterval(() => { if (Math.random()<0.7) this.whisper(); }, 1500));
+      this.timers.push(setInterval(() => { if (Math.random()<0.6) this.breathe(); }, 1500));
+      this.timers.push(setInterval(() => { if (Math.random()<0.5) this.glassScrape(); }, 3000));
+      this.timers.push(setInterval(() => { if (Math.random()<0.4) this.laugh(); }, 3500));
+      this.timers.push(setInterval(() => { if (Math.random()<0.35) this.crying(); }, 4000));
+      this.timers.push(setInterval(() => { if (Math.random()<0.3) this.footsteps(); }, 5000));
+      this.timers.push(setInterval(() => { if (Math.random()<0.3) this.knock(); }, 6000));
     }
   }
 }
