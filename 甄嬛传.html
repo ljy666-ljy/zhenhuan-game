@@ -103,10 +103,18 @@
   .event-note { background:rgba(120,60,30,0.3); border-left:3px solid #ffaa44; padding:8px 12px; margin:8px 0; font-size:14px; color:#ffd699; }
   .attr-change { font-size:13px; color:#80a060; margin-top:4px; }
   .attr-change .neg { color:#cc6060; }
+
+  /* 背景音乐控制按钮 */
+  #musicBtn { position:fixed; top:18px; right:18px; width:44px; height:44px; border-radius:50%; background:rgba(60,30,15,0.85); border:1px solid #ffcc66; color:#ffcc66; cursor:pointer; font-size:20px; z-index:999; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 10px rgba(0,0,0,0.5); transition:all .2s; backdrop-filter:blur(4px); }
+  #musicBtn:hover { background:rgba(120,60,30,0.9); transform:scale(1.08); }
+  #musicBtn.playing { animation:musicPulse 2s infinite; }
+  @keyframes musicPulse { 0%,100% { box-shadow:0 2px 10px rgba(255,170,0,0.4); } 50% { box-shadow:0 2px 20px rgba(255,170,0,0.8); } }
+  .music-tip { position:fixed; top:70px; right:18px; background:rgba(60,30,15,0.95); color:#ffcc66; padding:8px 14px; border:1px solid #ffcc66; border-radius:6px; font-size:13px; z-index:999; animation:fadeUp .3s; max-width:220px; }
 </style>
 </head>
 <body>
 <div id="app"><div id="root"></div></div>
+<button id="musicBtn" title="背景音乐">🎵</button>
 
 <script>
 /* =========================================================
@@ -623,6 +631,187 @@ let state = {
 const $ = (id) => document.getElementById(id);
 const root = () => document.getElementById('root');
 
+/* ---------- 古风背景音乐引擎（Web Audio API 程序化生成）---------- */
+class GuFengMusic {
+  constructor() {
+    this.ctx = null;
+    this.master = null;
+    this.playing = false;
+    this.mood = 'menu';
+    this.timer = null;
+    this.noteIdx = 0;
+    // 五声音阶（宫商角徵羽）- 不同八度
+    this.scales = {
+      menu:      [261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 587.33], // C大调五声
+      story:     [220.00, 246.94, 293.66, 329.63, 392.00, 440.00],         // 较沉稳
+      tense:     [196.00, 220.00, 261.63, 293.66, 349.23, 392.00],         // 紧张低沉
+      happy:     [293.66, 329.63, 392.00, 440.00, 523.25, 587.33, 659.25], // 明快高音
+      sad:       [174.61, 196.00, 220.00, 261.63, 293.66],                  // 悲伤低音
+      mystery:   [220.00, 261.63, 311.13, 392.00, 466.16, 523.25]          // 神秘（含半音）
+    };
+    // 旋律模板（用于生成更自然的乐句）
+    this.melodies = {
+      menu:  [0,2,4,2, 0,4,3,2, 1,3,4,3, 0,2,1,0],
+      story: [0,2,3,2, 4,3,2,0, 2,3,4,5, 3,2,0,2],
+      tense: [0,1,2,1, 0,1,2,3, 2,1,0,1, 3,2,1,0],
+      happy: [0,2,4,5, 4,2,4,5, 6,5,4,2, 5,4,2,0],
+      sad:   [0,1,2,1, 0,2,1,0, 4,3,2,1, 0,1,2,0],
+      mystery:[0,2,3,2, 4,3,2,4, 3,2,1,2, 0,2,3,0]
+    };
+    this.tempo = { menu:1100, story:900, tense:500, happy:700, sad:1400, mystery:1000 };
+    this.duration = { menu:1.6, story:1.2, tense:0.7, happy:1.0, sad:2.2, mystery:1.5 };
+  }
+
+  init() {
+    if (this.ctx) return;
+    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    this.master = this.ctx.createGain();
+    this.master.gain.value = 0.12;
+    // 加一个简单的混响（用ConvolverNode模拟）- 这里用低通滤波代替更轻量
+    this.filter = this.ctx.createBiquadFilter();
+    this.filter.type = 'lowpass';
+    this.filter.frequency.value = 2200;
+    this.filter.Q.value = 0.7;
+    this.master.connect(this.filter);
+    this.filter.connect(this.ctx.destination);
+  }
+
+  // 模拟古筝音色：sine基频 + triangle泛音 + 短促attack + 长decay
+  playNote(freq, duration, time) {
+    const ctx = this.ctx;
+    // 主音
+    const osc1 = ctx.createOscillator();
+    osc1.type = 'sine';
+    osc1.frequency.value = freq;
+    // 泛音（八度上）
+    const osc2 = ctx.createOscillator();
+    osc2.type = 'triangle';
+    osc2.frequency.value = freq * 2;
+    // 包络
+    const g1 = ctx.createGain();
+    const g2 = ctx.createGain();
+    g1.gain.setValueAtTime(0, time);
+    g1.gain.linearRampToValueAtTime(0.35, time + 0.015);
+    g1.gain.exponentialRampToValueAtTime(0.01, time + duration);
+    g2.gain.setValueAtTime(0, time);
+    g2.gain.linearRampToValueAtTime(0.12, time + 0.02);
+    g2.gain.exponentialRampToValueAtTime(0.001, time + duration * 0.7);
+    osc1.connect(g1); g1.connect(this.master);
+    osc2.connect(g2); g2.connect(this.master);
+    osc1.start(time); osc1.stop(time + duration);
+    osc2.start(time); osc2.stop(time + duration * 0.8);
+  }
+
+  // 低音和声（持续低音pad）
+  playDrone(freq, duration, time) {
+    const ctx = this.ctx;
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, time);
+    g.gain.linearRampToValueAtTime(0.08, time + 0.3);
+    g.gain.linearRampToValueAtTime(0.06, time + duration - 0.3);
+    g.gain.linearRampToValueAtTime(0, time + duration);
+    osc.connect(g); g.connect(this.master);
+    osc.start(time); osc.stop(time + duration);
+  }
+
+  start() {
+    this.init();
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+    this.playing = true;
+    this.noteIdx = 0;
+    this.scheduleNext();
+  }
+
+  stop() {
+    this.playing = false;
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+    if (this.master) {
+      // 淡出
+      const now = this.ctx.currentTime;
+      this.master.gain.cancelScheduledValues(now);
+      this.master.gain.setValueAtTime(this.master.gain.value, now);
+      this.master.gain.linearRampToValueAtTime(0, now + 0.3);
+      setTimeout(() => { if (this.master && !this.playing) this.master.gain.value = 0.12; }, 400);
+    }
+  }
+
+  setMood(mood) {
+    if (this.mood === mood) return;
+    this.mood = mood;
+    this.noteIdx = 0;
+  }
+
+  scheduleNext() {
+    if (!this.playing) return;
+    const scale = this.scales[this.mood] || this.scales.menu;
+    const melody = this.melodies[this.mood] || this.melodies.menu;
+    const tempo = this.tempo[this.mood] || 1000;
+    const dur = this.duration[this.mood] || 1.2;
+
+    const idx = melody[this.noteIdx % melody.length];
+    const note = scale[idx % scale.length];
+    const time = this.ctx.currentTime;
+
+    this.playNote(note, dur, time);
+    // 每4个音加一次低音和声
+    if (this.noteIdx % 4 === 0) {
+      this.playDrone(scale[0] / 2, dur * 4, time);
+    }
+    // 偶尔加高音点缀
+    if (Math.random() < 0.2) {
+      this.playNote(note * 2, dur * 0.5, time + 0.1);
+    }
+    this.noteIdx++;
+    this.timer = setTimeout(() => this.scheduleNext(), tempo);
+  }
+}
+
+const music = new GuFengMusic();
+
+function toggleMusic() {
+  const btn = document.getElementById('musicBtn');
+  if (music.playing) {
+    music.stop();
+    btn.classList.remove('playing');
+    btn.textContent = '🎵';
+    localStorage.setItem('zhenhuan_music', 'off');
+  } else {
+    music.start();
+    btn.classList.add('playing');
+    btn.textContent = '🎶';
+    localStorage.setItem('zhenhuan_music', 'on');
+  }
+}
+
+function updateMusicMood(screen, endingType) {
+  if (!music.playing) return;
+  if (screen === 'menu' || screen === 'mode' || screen === 'gallery' || screen === 'settings') {
+    music.setMood('menu');
+  } else if (screen === 'story') {
+    // 根据当前节点序号判断情绪
+    const node = state.nodeIdx;
+    if (state.charId === 'zhenhuan') {
+      if (node >= 6 && node <= 7) music.setMood('tense');
+      else if (node >= 4 && node <= 5) music.setMood('sad');
+      else music.setMood('story');
+    } else if (state.charId === 'huanfei' && node >= 4) {
+      music.setMood('tense');
+    } else if (state.charId === 'huanghou' && node >= 5) {
+      music.setMood('tense');
+    } else {
+      music.setMood('story');
+    }
+  } else if (screen === 'ending') {
+    if (endingType === '隐藏' || endingType === '黑化') music.setMood('mystery');
+    else if (endingType === '悲剧' || endingType === '出家') music.setMood('sad');
+    else if (endingType === '善终' || endingType === '归隐') music.setMood('happy');
+    else music.setMood('menu');
+  }
+}
+
 function loadProgress() {
   try {
     const saved = localStorage.getItem('zhenhuan_endings');
@@ -717,6 +906,10 @@ function render() {
     case 'gallery': renderGallery(r); break;
     case 'settings': renderSettings(r); break;
   }
+  // 切换背景音乐情绪
+  const endingType = state.screen === 'ending' && state.currentEnding && ENDINGS[state.currentEnding]
+    ? ENDINGS[state.currentEnding].type : null;
+  updateMusicMood(state.screen, endingType);
 }
 
 function renderMenu(r) {
@@ -1238,6 +1431,20 @@ function renderSettings(r) {
 
 // ---------- 初始化 ----------
 loadProgress();
+// 绑定音乐按钮
+const musicBtn = document.getElementById('musicBtn');
+musicBtn.addEventListener('click', toggleMusic);
+// 首次访问时提示音乐功能
+if (!localStorage.getItem('zhenhuan_music_prompted')) {
+  localStorage.setItem('zhenhuan_music_prompted', '1');
+  setTimeout(() => {
+    const tip = document.createElement('div');
+    tip.className = 'music-tip';
+    tip.innerHTML = '🎵 点击右上角图标开启古风背景音乐';
+    document.body.appendChild(tip);
+    setTimeout(() => tip.remove(), 5000);
+  }, 1200);
+}
 render();
 
 </script>
