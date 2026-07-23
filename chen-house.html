@@ -128,7 +128,12 @@
       官府结案"匪寇劫杀"，民间却传为诅咒<br>
       你是记者林墨，收到匿名信前来调查真相<br>
       <br>
-      <span style="color:#802020;">⚠ 本游戏含恐怖元素、惊吓画面，请谨慎游玩</span>
+      <span style="color:#cc2020;font-size:15px;"><b>⚠ 高难度恐怖模式已开启</b></span>
+      <br>
+      <span style="color:#802020;">
+      <b>初始生命/理智/电量双减</b> · 手电持续耗电 · 女鬼追击系统 · 理智崩溃机制<br>
+      低频次声波 · 跳吓画面 · 高分贝尖啸音效 · 精神污染文字描写<br>
+      <b>建议戴耳机 · 心理承受能力弱者谨慎游玩</b></span>
     </p>
     <button class="menu-btn" data-act="start">🔦 踏入古宅</button>
     <button class="menu-btn" data-act="gallery">📜 已解锁结局</button>
@@ -285,6 +290,171 @@ class HorrorMusic {
     osc.start(t);
     osc.stop(t + 2);
   }
+  // 次声波（18Hz，人耳听不到但引起不安/恐惧）
+  infrasound() {
+    if (!this.ctx) return;
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = 18;
+    const g = this.ctx.createGain();
+    g.gain.value = 0.4;
+    osc.connect(g);
+    g.connect(this.master);
+    osc.start();
+    this.sources.push(osc);
+  }
+  // 耳语声（白噪声+共振峰滤波，模拟人声但听不清）
+  whisper() {
+    if (!this.ctx || !this.playing) return;
+    const t = this.ctx.currentTime;
+    const bufferSize = 1.5 * this.ctx.sampleRate;
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+    // 多个共振峰滤波器模拟人声
+    const formant1 = this.ctx.createBiquadFilter();
+    formant1.type = 'bandpass';
+    formant1.frequency.value = 400;
+    formant1.Q.value = 8;
+    const formant2 = this.ctx.createBiquadFilter();
+    formant2.type = 'bandpass';
+    formant2.frequency.value = 1200;
+    formant2.Q.value = 10;
+    const formant3 = this.ctx.createBiquadFilter();
+    formant3.type = 'bandpass';
+    formant3.frequency.value = 2200;
+    formant3.Q.value = 12;
+    const merger = this.ctx.createGain();
+    merger.gain.value = 0.5;
+    noise.connect(formant1); formant1.connect(merger);
+    noise.connect(formant2); formant2.connect(merger);
+    noise.connect(formant3); formant3.connect(merger);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.12, t + 0.3);
+    g.gain.linearRampToValueAtTime(0.08, t + 0.8);
+    g.gain.linearRampToValueAtTime(0, t + 1.5);
+    // LFO让音量起伏，像在说话
+    const lfo = this.ctx.createOscillator();
+    lfo.frequency.value = 5;
+    const lfoGain = this.ctx.createGain();
+    lfoGain.gain.value = 0.06;
+    lfo.connect(lfoGain);
+    lfoGain.connect(g.gain);
+    merger.connect(g);
+    g.connect(this.master);
+    noise.start(t);
+    lfo.start(t);
+    noise.stop(t + 1.6);
+    lfo.stop(t + 1.6);
+  }
+  // 呼吸声（低频脉冲+气流噪声）
+  breath() {
+    if (!this.ctx || !this.playing) return;
+    const t = this.ctx.currentTime;
+    // 吸气（高频噪声短促）
+    const inhaleBuf = this.ctx.createBuffer(1, 0.5 * this.ctx.sampleRate, this.ctx.sampleRate);
+    const inhaleData = inhaleBuf.getChannelData(0);
+    for (let i = 0; i < inhaleData.length; i++) inhaleData[i] = (Math.random() * 2 - 1) * (1 - i/inhaleData.length);
+    const inhale = this.ctx.createBufferSource();
+    inhale.buffer = inhaleBuf;
+    const inhaleFilter = this.ctx.createBiquadFilter();
+    inhaleFilter.type = 'bandpass';
+    inhaleFilter.frequency.value = 800;
+    const inhaleG = this.ctx.createGain();
+    inhaleG.gain.setValueAtTime(0, t);
+    inhaleG.gain.linearRampToValueAtTime(0.15, t + 0.1);
+    inhaleG.gain.linearRampToValueAtTime(0, t + 0.4);
+    inhale.connect(inhaleFilter); inhaleFilter.connect(inhaleG); inhaleG.connect(this.master);
+    inhale.start(t);
+    inhale.stop(t + 0.5);
+    // 呼气（延迟0.5秒）
+    const exhaleBuf = this.ctx.createBuffer(1, 0.8 * this.ctx.sampleRate, this.ctx.sampleRate);
+    const exhaleData = exhaleBuf.getChannelData(0);
+    for (let i = 0; i < exhaleData.length; i++) exhaleData[i] = (Math.random() * 2 - 1);
+    const exhale = this.ctx.createBufferSource();
+    exhale.buffer = exhaleBuf;
+    const exhaleFilter = this.ctx.createBiquadFilter();
+    exhaleFilter.type = 'bandpass';
+    exhaleFilter.frequency.value = 500;
+    const exhaleG = this.ctx.createGain();
+    exhaleG.gain.setValueAtTime(0, t + 0.5);
+    exhaleG.gain.linearRampToValueAtTime(0.12, t + 0.7);
+    exhaleG.gain.linearRampToValueAtTime(0, t + 1.3);
+    exhale.connect(exhaleFilter); exhaleFilter.connect(exhaleG); exhaleG.connect(this.master);
+    exhale.start(t + 0.5);
+    exhale.stop(t + 1.4);
+  }
+  // 不和谐钢琴音（多个相近半音同时响）
+  dissonantPiano() {
+    if (!this.ctx || !this.playing) return;
+    const t = this.ctx.currentTime;
+    // 三全音（魔鬼音程）+ 半音
+    const freqs = [130.81, 138.59, 185.00, 196.00]; // C3, C#3, F#3, G3
+    freqs.forEach(f => {
+      const osc = this.ctx.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.value = f;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.10, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 3);
+      osc.connect(g);
+      g.connect(this.master);
+      osc.start(t);
+      osc.stop(t + 3.1);
+    });
+  }
+  // 弦乐滑音（像指甲刮玻璃，刺耳）
+  glassScrape() {
+    if (!this.ctx || !this.playing) return;
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(3000, t);
+    osc.frequency.exponentialRampToValueAtTime(6000, t + 0.8);
+    osc.frequency.exponentialRampToValueAtTime(1500, t + 1.5);
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = 4000;
+    filter.Q.value = 20;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.10, t + 0.05);
+    g.gain.linearRampToValueAtTime(0.05, t + 1.0);
+    g.gain.linearRampToValueAtTime(0, t + 1.6);
+    osc.connect(filter); filter.connect(g); g.connect(this.master);
+    osc.start(t);
+    osc.stop(t + 1.7);
+  }
+  // 突然的巨响（跳吓专用）
+  stinger() {
+    if (!this.ctx || !this.playing) return;
+    const t = this.ctx.currentTime;
+    // 极低频爆发
+    const osc1 = this.ctx.createOscillator();
+    osc1.type = 'sawtooth';
+    osc1.frequency.setValueAtTime(80, t);
+    osc1.frequency.exponentialRampToValueAtTime(20, t + 0.5);
+    const g1 = this.ctx.createGain();
+    g1.gain.setValueAtTime(0.5, t);
+    g1.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
+    osc1.connect(g1); g1.connect(this.master);
+    osc1.start(t); osc1.stop(t + 0.9);
+    // 高频金属碰撞
+    for (let i = 0; i < 5; i++) {
+      const osc = this.ctx.createOscillator();
+      osc.type = 'square';
+      osc.frequency.value = 2000 + Math.random() * 4000;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.15, t + Math.random() * 0.1);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.3 + Math.random() * 0.2);
+      osc.connect(g); g.connect(this.master);
+      osc.start(t); osc.stop(t + 0.5);
+    }
+  }
   start() {
     this.init();
     if (this.ctx.state === 'suspended') this.ctx.resume();
@@ -314,26 +484,54 @@ class HorrorMusic {
   startMood(mood) {
     this.mood = mood;
     if (mood === 'calm') {
-      this.startDrone(55, 0.10);
+      // 表面平静，但次声波已经在影响你
+      this.infrasound();
+      this.startDrone(55, 0.12);
+      this.startDrone(82.4, 0.04); // 不和谐五度
       this.rain();
       this.timers.push(setInterval(() => this.heartbeat(), 2400));
+      this.timers.push(setInterval(() => { if (Math.random() < 0.15) this.whisper(); }, 12000));
+      this.timers.push(setInterval(() => { if (Math.random() < 0.10) this.breath(); }, 15000));
     } else if (mood === 'tense') {
-      this.startDrone(45, 0.18);
-      this.startDrone(73, 0.06);
+      this.infrasound();
+      this.startDrone(45, 0.20);
+      this.startDrone(73, 0.08); // 不和谐
+      this.startDrone(110, 0.04); // 高八度
       this.rain();
       this.timers.push(setInterval(() => this.heartbeat(), 1400));
-      this.timers.push(setInterval(() => { if (Math.random() < 0.3) this.screech(); }, 8000));
+      this.timers.push(setInterval(() => { if (Math.random() < 0.35) this.screech(); }, 7000));
+      this.timers.push(setInterval(() => { if (Math.random() < 0.25) this.whisper(); }, 8000));
+      this.timers.push(setInterval(() => { if (Math.random() < 0.20) this.breath(); }, 9000));
+      this.timers.push(setInterval(() => { if (Math.random() < 0.15) this.glassScrape(); }, 11000));
     } else if (mood === 'danger') {
-      this.startDrone(38, 0.22);
-      this.startDrone(61, 0.10);
-      this.timers.push(setInterval(() => this.heartbeat(), 800));
-      this.timers.push(setInterval(() => { if (Math.random() < 0.5) this.screech(); }, 4000));
+      // 极度危险：所有恐怖元素叠加
+      this.infrasound();
+      this.startDrone(38, 0.25);
+      this.startDrone(61, 0.12); // 不和谐
+      this.startDrone(91, 0.06); // 三全音
+      this.timers.push(setInterval(() => this.heartbeat(), 700));
+      this.timers.push(setInterval(() => { if (Math.random() < 0.5) this.screech(); }, 3500));
+      this.timers.push(setInterval(() => { if (Math.random() < 0.4) this.whisper(); }, 5000));
+      this.timers.push(setInterval(() => { if (Math.random() < 0.35) this.breath(); }, 4500));
+      this.timers.push(setInterval(() => { if (Math.random() < 0.25) this.glassScrape(); }, 6000));
+      this.timers.push(setInterval(() => { if (Math.random() < 0.20) this.dissonantPiano(); }, 8000));
     } else if (mood === 'reveal') {
-      this.startDrone(110, 0.10);
+      // 真相揭示：庄严又诡异
+      this.startDrone(110, 0.12);
+      this.startDrone(164.8, 0.05);
       this.timers.push(setInterval(() => this.bell(330), 3000));
+      this.timers.push(setInterval(() => { if (Math.random() < 0.20) this.whisper(); }, 10000));
+      this.timers.push(setInterval(() => { if (Math.random() < 0.15) this.dissonantPiano(); }, 12000));
     } else if (mood === 'death') {
-      this.startDrone(30, 0.30);
-      this.timers.push(setInterval(() => this.screech(), 1500));
+      // 死亡：所有恐怖元素达到极致
+      this.infrasound();
+      this.startDrone(30, 0.35);
+      this.startDrone(42, 0.15);
+      this.timers.push(setInterval(() => this.screech(), 1200));
+      this.timers.push(setInterval(() => this.stinger(), 3000));
+      this.timers.push(setInterval(() => { if (Math.random() < 0.6) this.whisper(); }, 2500));
+      this.timers.push(setInterval(() => { if (Math.random() < 0.5) this.breath(); }, 2000));
+      this.timers.push(setInterval(() => { if (Math.random() < 0.4) this.glassScrape(); }, 4000));
     }
   }
 }
@@ -354,18 +552,24 @@ function toggleMusic() {
 }
 
 // ---------- 游戏状态 ----------
+// 难度提升：初始理智80、电量60、生命90；新增女鬼追击、电量消耗、恐惧等级
 let state = {
   screen: 'title',
   sceneId: 'gate',
-  hp: 100,
-  san: 100,
-  battery: 80,
+  hp: 90,
+  san: 80,
+  battery: 60,
   inventory: [],
   flags: [],
   cluesFound: [],
   visitedScenes: [],
   ending: null,
-  history: []
+  history: [],
+  ghostAggro: 0,       // 女鬼仇恨值，越高越容易被追
+  fearLevel: 0,        // 恐惧等级，影响跳吓概率
+  turnCount: 0,        // 回合数，每动作+1
+  ghostChasing: false, // 女鬼是否正在追击
+  lastSafeScene: 'gate' // 上次安全场景
 };
 
 let unlockedEndings = [];
@@ -396,53 +600,99 @@ const SCENES = {
     title:'第一幕·古宅门前',
     mood:'calm',
     desc:`雨夜。林墨提着马灯，立于陈家老宅门前。<br><br>
-      朱漆大门斑驳剥落，铜环上结着蛛网。门楣上"陈府"二字已模糊不清。<br><br>
+      朱漆大门斑驳剥落，铜环上结着蛛网。<span class="scare">蛛网上沾着几根湿漉漉的黑发</span>，像是有人刚触碰过。门楣上"陈府"二字已模糊不清，但隐约能看见...<span class="scare">字迹下有暗红色的掌印</span>，五指张开，像是有人临死前绝望地抓过这里。<br><br>
       二十年了。二十年前那个雨夜，这里三十八条人命，无人幸免。匿名信就在怀里：<b>"陈家灭门真相，速来。"</b><br><br>
-      风中似乎传来哭声...又像是雨声。`,
+      风中似乎传来哭声...又像是雨声。<span class="scare">但那哭声分明在叫你的名字。</span>`,
     choices:[
       {text:'推开朱漆大门', next:'hall'},
       {text:'先绕着宅子查看一圈', next:'around', effect:{san:-5}},
-      {text:'拿出相机拍下门楣', next:'gate_photo', once:true}
+      {text:'拿出相机拍下门楣', next:'gate_photo', once:true},
+      {text:'侧耳细听哭声', next:'gate_listen', once:true, effect:{san:-10}}
+    ]
+  },
+  gate_listen: {
+    title:'第一幕·耳畔低语',
+    mood:'tense',
+    desc:`你贴近大门侧耳倾听...<br><br>
+      <span class="scare">哭声渐渐清晰，是女子的声音，断断续续：</span><br>
+      <b>"...林...墨...来...陪...我..."</b><br><br>
+      你猛地后退，撞倒了什么。<br><br>
+      回头看--什么也没有。但你的相机镜头里，<span class="scare">分明映出一个白衣女子的身影，正站在你身后。</span><br><br>
+      你回身，什么也没有。再看镜头，<span class="scare">镜头里的女子已经离你更近了。</span>`,
+    choices:[
+      {text:'立刻推开大门逃进去', next:'hall', effect:{san:-5}, flag:'heard_whisper'},
+      {text:'删除照片，强迫自己镇定', next:'gate', effect:{san:-8}, flag:'denied_ghost'}
     ]
   },
   around: {
     title:'第一幕·围墙外',
-    mood:'calm',
+    mood:'tense',
     desc:`围墙高约一丈，青砖生满青苔。绕至宅子后方，<b class="scare">看见围墙上有抓痕</b>，从内向外，五道一组，密密麻麻。<br><br>
-      你伸手触摸，<span class="scare">抓痕处渗出暗红液体...</span>理智值-5。`,
+      有些抓痕嵌着断裂的指甲，已经发黑。你伸手触摸，<span class="scare">抓痕处渗出暗红液体...</span>指尖沾上了，凑近闻--<b>是血，新鲜的血。</b><br><br>
+      围墙下有几行脚印，<span class="scare">赤脚，湿漉漉，走向围墙深处。</span>但脚印到这里就消失了，像那人凭空消失。`,
     choices:[
-      {text:'回到大门前', next:'gate'},
-      {text:'继续往更深处的后院查看', next:'well_peek', effect:{san:-10}}
+      {text:'回到大门前', next:'gate', effect:{san:-5}},
+      {text:'跟随脚印继续往深处', next:'well_peek', effect:{san:-15}, flag:'followed_footprints'},
+      {text:'舔一下指尖的液体', next:'around_taste', once:true, effect:{san:-20}}
+    ]
+  },
+  around_taste: {
+    title:'第一幕·铁锈与腥甜',
+    mood:'danger',
+    desc:`你鬼使神差地把指尖凑近嘴边...<br><br>
+      <span class="scare">那不是血的味道。</span><br><br>
+      是井水。带着铁锈、带着泥土、带着...<b>二十年的腐败气息。</b><br><br>
+      你的胃剧烈翻滚，吐了出来。但吐出来的不是食物，<span class="scare">是一团黑色的、湿漉漉的头发。</span>`,
+    choices:[
+      {text:'惊恐地逃回大门', next:'gate', effect:{san:-15, hp:-10}, flag:'tasted_blood'}
     ]
   },
   gate_photo: {
     title:'第一幕·门楣特写',
     mood:'calm',
     desc:`马灯照亮门楣，"陈府"二字下，还有一行小字：<b>"民国五年立·陈伯韬建"</b>。<br><br>
-      陈伯韬，陈家老爷，二十年前血案的主人身。合影、剪报、日记...你今天一定要找到真相。`,
+      陈伯韬，陈家老爷，二十年前血案的主人身。合影、剪报、日记...你今天一定要找到真相。<br><br>
+      拍完照，你回看相片。<span class="scare">相片里的大门上方，"陈府"二字下，悬挂着一颗人头。</span>你抬头看门楣--空无一物。再看相片--<span class="scare">那颗人头正在微笑。</span>`,
     choices:[
-      {text:'推开朱漆大门', next:'hall'}
+      {text:'推开朱漆大门', next:'hall', effect:{san:-5}}
     ]
   },
   well_peek: {
     title:'第一幕·后院古井',
-    mood:'tense',
-    desc:`透过围墙缝隙，看见后院有一口<b class="clue">古井</b>。井边似乎...有一个白色身影？<br><br>
-      <span class="scare">那身影突然转头看你！</span>没有脸，只有湿漉漉的黑发遮住头颅。<br><br>
-      你后退几步，听见井中传来"咕嘟咕嘟"的水声，像是有人在哭。`,
+    mood:'danger',
+    desc:`透过围墙缝隙，看见后院有一口<b class="clue">古井</b>。井边<span class="scare">真的站着一个白衣女子</span>，背对着你，长发垂地，正在用一把梳子梳头。<br><br>
+      梳一下，<b>掉一缕头发</b>。再梳一下，<b>掉一块头皮</b>。第三下，<span class="scare">她把自己的脸皮梳了下来。</span><br><br>
+      她突然停止动作，<b class="scare">头颅 180 度转向你</b>--没有脸，只有不断滴水的黑发遮住头颅。她开口，声音像锈铁刮过：<br>
+      <b>"你...也...想...看...吗..."</b>`,
     choices:[
-      {text:'立刻退回大门', next:'gate', effect:{san:-15}},
-      {text:'强忍恐惧继续看', next:'well_close', effect:{san:-10}}
+      {text:'立刻退回大门', next:'gate', effect:{san:-20}, flag:'saw_ghost_well'},
+      {text:'强忍恐惧走近古井', next:'well_close', effect:{san:-15}, flag:'brave_well'}
+    ]
+  },
+  well_close: {
+    title:'第一幕·井中倒影',
+    mood:'danger',
+    desc:`你走近古井。井沿冰冷。井水漆黑如墨，看不见底。<br><br>
+      你探头往下看--<span class="scare">井水里映出你的脸，但那不是你的脸。</span>是一个女子，长发披散，眼神怨毒。<br><br>
+      <b class="scare">井中的她向你伸出手。</b>你感觉有一只冰冷的手从井里伸出，抓住你的衣领--<br><br>
+      <span class="scare">井盖"砰"地一声合上！</span>你跌坐在地，浑身冷汗。回头一看，井边空无一人。只有井沿上，<b>多了一绺湿漉漉的头发。</b>`,
+    choices:[
+      {text:'捡起头发留作证据', next:'gate', give:'ghosthair', effect:{san:-10}, msg:'获得：女鬼头发 🖤'},
+      {text:'立刻逃离', next:'gate', effect:{san:-15, hp:-5}}
     ]
   },
   hall: {
-    title:'第二幕·前厅',
+    title:'第二幕·前厅 · 尸陈于此',
     mood:'tense',
-    desc:`朱漆大门"嘎吱"推开，扬起一片灰尘。前厅正中悬着"陈府"匾额，落款"民国五年"。<br><br>
-      匾额下是一张八仙桌，桌上的烛台插着半截未燃尽的<b class="clue">蜡烛</b>。两侧是太师椅，椅背雕花已被虫蛀。<br><br>
-      正中通往客厅，左侧通往书房，右侧通往卧室。后方一道狭窄楼梯通往阁楼，楼梯下有扇小门通往祠堂。`,
+    desc:`朱漆大门"嘎吱"推开，扬起一片灰尘。<span class="scare">灰尘悬在半空，像一张张人脸在空中旋转，然后消散。</span><br><br>
+      前厅正中悬着"陈府"匾额，落款"民国五年"。<span class="scare">匾额下方坐着一具干尸</span>——穿着民国家丁服饰，双手保持着奉茶的姿势，干瘪的脸上是恐惧扭曲的表情，<b>嘴张得极大，像死前在尖叫。</b><br><br>
+      桌上烛台插着半截未燃尽的<b class="clue">蜡烛</b>。两侧太师椅，其中一把椅背上搭着一件<b>女人的湿衣服</b>，滴着水，地面上积了一小滩。<span class="scare">但屋子里并没有下雨。</span><br><br>
+      你的脚步声在空旷的前厅里回荡，但回声次数不对——<b>你走一步，却有四五个回声。</b><br><br>
+      正中通往客厅，左侧通往书房，右侧通往卧室。后方狭窄楼梯通往阁楼，楼梯下有扇小门通往祠堂。<br><br>
+      <span class="scare">楼梯深处传来"咚咚"声，像有人在用头撞墙。</span>`,
     choices:[
       {text:'拿走桌上的蜡烛', next:'hall', once:true, give:'candle', msg:'获得：蜡烛 🕯'},
+      {text:'查看干尸', next:'hall_corpse', once:true, effect:{san:-10}},
       {text:'前往客厅', next:'livingroom'},
       {text:'前往书房', next:'study'},
       {text:'前往卧室', next:'bedroom'},
@@ -450,17 +700,47 @@ const SCENES = {
       {text:'上楼梯去阁楼', next:'attic', require:'key_red', msg:'阁楼门锁着，需要红绳钥匙'}
     ]
   },
+  hall_corpse: {
+    title:'第二幕·干尸开口',
+    mood:'danger',
+    desc:`你走近干尸，弯下腰细看它的脸。<span class="scare">它的眼珠突然转动，死死盯着你！</span><br><br>
+      干尸的嘴一张一合，<b>发出枯木摩擦般的声音：</b><br>
+      <b>"先...生...救...我...她...在...你...身...后..."</b><br><br>
+      你猛地回头——<span class="scare">一张惨白的脸与你鼻尖对鼻尖！</span>是一个女人的脸，没有瞳孔，只有眼白，嘴裂到耳根。<br><br>
+      你尖叫后退，再定睛看——<span class="scare">什么也没有。</span><br><br>
+      回头看干尸，<span class="scare">它的头颅已经不见了。</span>地上滚着一颗头颅，一直滚到楼梯下，撞开了通往祠堂的小门。<br><br>
+      干尸的手指间，夹着一把<b class="clue">铜锈钥匙</b>。`,
+    choices:[
+      {text:'拿走钥匙，追去祠堂', next:'hall', once:true, give:'key_rust', msg:'获得：铜锈钥匙 🗝', effect:{san:-15}, flag:'corpse_spoke'}
+    ]
+  },
   livingroom: {
-    title:'第三幕·客厅',
+    title:'第三幕·客厅 · 亡者聚会',
     mood:'tense',
-    desc:`客厅陈设依然如二十年前。茶几上放着一只青瓷茶碗，茶水早已干涸，碗底却有<b class="clue">暗褐色痕迹</b>——像血。<br><br>
-      墙上挂着一幅<b class="clue">陈家合影</b>，三十八人，最末一人面容模糊不清。合影下方有一只上锁的抽屉。<br><br>
-      角落里有一架旧风琴，琴键上似乎有东西。`,
+    desc:`客厅里，<b>二十年前的茶会还在继续。</b><br><br>
+      茶几上放着一杯青瓷茶碗，碗里的水还有温度。<span class="scare">水面映出一张苍白的脸——不是你的。</span>你抬头，身边无人。再看水面，那张脸正缓缓浮出水面。<br><br>
+      墙上挂着一幅<b class="clue">陈家合影</b>，三十八人，<span class="scare">每个人的眼睛都流着血泪，最末一人的脸正在腐烂。</span><br><br>
+      角落里那架旧风琴，<span class="scare">琴键无人自弹，奏着那首《小白菜》。</span>琴凳上有一个半透明的轮廓，像是一个坐着的小女孩。<br><br>
+      茶几上还有一盘糕点，<span class="scare">但盘中的不是糕点，是人的手指。</span>`,
     choices:[
       {text:'细看合影', next:'living_photo', once:true},
-      {text:'尝试打开抽屉', next:'living_drawer'},
+      {text:'翻看茶几抽屉', next:'living_drawer'},
+      {text:'触碰那个小女孩', next:'living_ghostgirl', once:true, effect:{san:-15}},
       {text:'查看风琴', next:'living_piano', once:true},
       {text:'回到前厅', next:'hall'}
+    ]
+  },
+  living_ghostgirl: {
+    title:'第三幕·琴凳上的女孩',
+    mood:'danger',
+    desc:`你伸出手想去触碰那个半透明的轮廓——<br><br>
+      手指穿过她的身体，<span class="scare">一阵彻骨的寒意从指尖窜到心脏。</span><br><br>
+      小女孩的轮廓缓缓转过头来，<span class="scare">露出一张七窍流血的脸。</span>她咧嘴一笑，露出满口黑色的牙齿：<br>
+      <b>"大哥哥，你也留下来陪我玩吧...永远永远..."</b><br><br>
+      <span class="scare">她冰凉的手抓住了你的手指！</span>你感到自己的体温在流失。`,
+    choices:[
+      {text:'甩开她的手', next:'livingroom', effect:{hp:-15, san:-10}},
+      {text:'问她陈家的事', next:'livingroom', effect:{san:-15, hp:-10}, flag:'girl_spoke'}
     ]
   },
   living_photo: {
@@ -515,16 +795,30 @@ const SCENES = {
     ]
   },
   study: {
-    title:'第四幕·书房',
+    title:'第四幕·书房 · 怨念之书',
     mood:'tense',
-    desc:`书房书架上书卷整齐，却蒙着厚厚的灰。正中一张紫檀书案，案上有一本<b class="clue">厚日记本</b>，锁着。<br><br>
-      旁边放着一叠<b class="clue">报纸剪报</b>，最上一张标题：<b>"陈氏满门血案·疑为匪寇·结案"</b>，日期"民国五年九月二十日"。<br><br>
-      书架角落有一只上锁的匣子。`,
+    desc:`书房里一股<b>腐臭和墨香混合的气味</b>，让人恶心。<br><br>
+      书架上书卷整齐，<span class="scare">但所有书脊都朝内摆放，像是在躲避什么。</span>你再细看——<b>书架最上层有一排无脸人头泥塑，每一颗都盯着你。</b><br><br>
+      正中一张紫檀书案，案上有一本<b class="clue">厚日记本</b>，锁着。<span class="scare">日记本的封皮在微微起伏，像有什么东西在里面呼吸。</span><br><br>
+      旁边放着一叠<b class="clue">报纸剪报</b>，标题：<b>"陈氏满门血案·疑为匪寇·结案"</b>。<span class="scare">剪报上的字正在渗血，就像刚印出来一样。</span><br><br>
+      书架角落有一只匣子。`,
     choices:[
       {text:'查看日记本（需密码）', next:'study_diary'},
       {text:'翻阅剪报', next:'study_news', once:true},
       {text:'尝试打开匣子', next:'study_box'},
+      {text:'查看那些泥塑人头', next:'study_heads', once:true, effect:{san:-10}},
       {text:'回到前厅', next:'hall'}
+    ]
+  },
+  study_heads: {
+    title:'第四幕·人头泥塑',
+    mood:'danger',
+    desc:`你走近书架，细看那些人头泥塑——每一颗都面目狰狞，表情各异。<span class="scare">它们的嘴都在动，像在无声地尖叫。</span><br><br>
+      最中间的一颗，<b>突然睁开了眼睛！</b>它看着你，嘴唇无声地说出两个字：<br>
+      <b>"快...走..."</b><br><br>
+      <span class="scare">书架剧烈晃动了一下，所有人头都转向你。</span>`,
+    choices:[
+      {text:'后退几步', next:'study', effect:{san:-8}, flag:'heads_warned'}
     ]
   },
   study_news: {
@@ -579,16 +873,26 @@ const SCENES = {
     ]
   },
   bedroom: {
-    title:'第五幕·主卧',
+    title:'第五幕·主卧 · 红罗帐内',
     mood:'tense',
-    desc:`主卧雕花大床，红罗帐已朽烂。床前梳妆台铜镜蒙尘。镜前放着一支<b class="clue">银簪</b>，簪头有暗褐斑。<br><br>
-      墙上挂着一幅女子画像，画中女子面容清秀，眉间一点朱砂。画像下方写着：<b>"念慈夫人遗像"</b>。<br><br>
-      梳妆台抽屉半开，露出半张纸。`,
+    desc:`主卧雕花大床，红罗帐已朽烂，上面绣着鸳鸯戏水的图案，但<span class="scare">鸳鸯的眼睛在流血。</span><br><br>
+      床前梳妆台铜镜蒙尘，镜前放着一支<b class="clue">银簪</b>。你凑近看——<span class="scare">铜镜里映出的，不是你，是一个背对着你梳头的女子。</span>你回头看身后，<b>什么也没有。</b>再看镜子——<span class="scare">那女子已经转过一半脸，露出一只没有瞳孔的眼睛。</span><br><br>
+      墙上挂着念慈夫人的画像，<span class="scare">画像中她的眼睛在往下掉眼泪，泪水是红色的。</span><br><br>
+      梳妆台抽屉半开，露出半张纸。<span class="scare">纸上的字在蠕动。</span>`,
     choices:[
       {text:'查看画像', next:'bedroom_pic', once:true},
       {text:'打开梳妆台抽屉', next:'bedroom_drawer', once:true},
       {text:'细看银簪', next:'bedroom_pin', once:true},
+      {text:'查看铜镜', next:'bedroom_mirror', once:true, effect:{san:-12}},
       {text:'回到前厅', next:'hall'}
+    ]
+  },
+  bedroom_mirror: {
+    title:'第五幕·镜中之人',
+    mood:'danger',
+    desc:'你死死盯着铜镜。镜中的女子已经完全转过身来。<span class="scare">她满脸溃烂，皮肉一块块往下掉。</span>她抬起一只手指向你，<br><br><b>"下...一...个...就...是...你..."</b><br><br>她咧嘴一笑，<span class="scare">嘴里是空的——没有舌头，没有牙齿，只有无尽的黑。</span><br><br>铜镜突然碎裂！你低头看——镜子完好无损。再抬头，镜中只有你自己。<span class="scare">但你的脖子上多了一道黑色的手印。</span>',
+    choices:[
+      {text:'用衣袖擦掉手印', next:'bedroom', effect:{hp:-5, san:-10}, flag:'mirror_mark'}
     ]
   },
   bedroom_pic: {
@@ -596,7 +900,7 @@ const SCENES = {
     mood:'tense',
     desc:`画像中女子眉间一点朱砂，眼神却满是哀怨。<br><br>
       <span class="scare">你感觉画像的眼睛在跟着你转动！</span>回头看，房间里只有你一人。<br><br>
-      再看画像，画像嘴角似乎...微微上扬了？`,
+      再看画像，画像嘴角似乎...微微上扬了？<span class="scare">她的嘴角越扬越高，裂到耳根——那不是笑，是死前痛苦的扭曲。</span>`,
     choices:[
       {text:'磕头行礼以示尊敬', next:'bedroom', effect:{san:5}, flag:'respect_nianci'},
       {text:'转身离开', next:'bedroom', effect:{san:-8}}
@@ -605,14 +909,15 @@ const SCENES = {
   bedroom_drawer: {
     title:'第五幕·梳妆台抽屉',
     mood:'tense',
-    desc:`抽屉里是一封未寄出的信：<br><br>
+    desc:`抽屉拉开——<b>里面不是信，是一只断手。</b><br><br>
+      你后退，闭眼，再看——<span class="scare">断手变成了那封绝笔信。</span>你不敢细看，赶紧抓起信来读：<br><br>
       <b>"伯韬夫君如晤：<br>
       妾身命薄，未能为陈家添丁。然夫君纳妾四人，妾身心如刀绞。<br>
-      妾身已病入膏肓，愿来世不再相见。<br>
-      然陈家欠妾身的，必要偿还。妾身虽死，魂魄不散。<br>
-      妾身以血为誓，以井为冢，以怨为食，以仇为念。<br>
+      妾身已病入膏肓，愿来世不再相见。然陈家欠妾身的，必要偿还。<br>
+      妾身虽死，魂魄不散。以血为誓，以井为冢，以怨为食，以仇为念。<br>
       二十年后，必归来取。<br>
-      念慈绝笔"</b>`,
+      念慈绝笔"</b><br><br>
+      <span class="scare">读到最后一个字时，信纸上的墨迹变成了血。</span>`,
     choices:[
       {text:'收起信件', next:'bedroom', give:'diary2', msg:'获得：日记残页·二 📄', clue:'diary2', effect:{san:-10}}
     ]
@@ -628,29 +933,42 @@ const SCENES = {
     ]
   },
   shrine: {
-    title:'第六幕·祠堂',
+    title:'第六幕·祠堂 · 三十八魂',
     mood:'danger',
-    desc:`祠堂正中是陈家祖宗牌位，共三十八块。最末一块<b class="clue">无字牌位</b>，前面放着一支已灭的香。<br><br>
-      牌位两侧挂着一副对联：<b>"善恶到头终有报，阴阳两地不相欺"</b>。<br><br>
-      祠堂深处有一道下行的阶梯，通往<b class="clue">地窖</b>。`,
+    desc:`祠堂阴冷刺骨，温度比外面低了十几度。<span class="scare">哈出的气变成了白雾，但屋里的空气并没有那么冷——冷的是别的东西。</span><br><br>
+      祠堂正中是陈家祖宗牌位，共三十八块。<span class="scare">牌位在轻轻震动，像有无数人在同时敲击。</span>最末一块<b class="clue">无字牌位</b>，前面放着一支已灭的香。<span class="scare">香灰是鲜红色的，像血。</span><br><br>
+      牌位两侧挂着一副对联：<b>"善恶到头终有报，阴阳两地不相欺"</b>。<span class="scare">对联的纸正在往下滴水，像有什么人刚从水里爬出来。</span><br><br>
+      祠堂深处有一道下行的阶梯，通往<b class="clue">地窖</b>。<span class="scare">阶梯上有一行湿漉漉的脚印，从地窖方向走上来的。</span>`,
     choices:[
       {text:'细看牌位', next:'shrine_tablets', once:true},
       {text:'点燃三炷香祈祷', next:'shrine_pray', once:true, require:'candle'},
       {text:'下楼梯去地窖', next:'cellar'},
+      {text:'查看那行脚印', next:'shrine_footprints', once:true, effect:{san:-12}},
       {text:'回到前厅', next:'hall'}
+    ]
+  },
+  shrine_footprints: {
+    title:'第六幕·湿脚印',
+    mood:'danger',
+    desc:`你蹲下查看脚印——<b>是赤脚，女人的脚，很小。</b><br><br>
+      脚印从地窖上来，走进祠堂中央，然后...<span class="scare">消失了。凭空消失。</span><br><br>
+      你抬起头——<span class="scare">正对上一张惨白浮肿的脸。</span>一个湿漉漉的女人倒吊在房梁上，长发垂下来，发梢滴着水。<span class="scare">水珠滴在你脸上，是冰凉的。</span><br><br>
+      她一眨眼，消失了。房梁上只剩下一件湿透的白衣，<b>像蛇蜕一样悬挂着。</b>`,
+    choices:[
+      {text:'拿起白衣查看', next:'shrine', give:'ghosthair', effect:{san:-10, hp:-5}, msg:'白衣入手即化为黑水'},
+      {text:'逃离祠堂', next:'hall', effect:{san:-10}}
     ]
   },
   shrine_tablets: {
     title:'第六幕·牌位之谜',
     mood:'danger',
-    desc:`三十八块牌位，按生卒日期排列。<br><br>
-      陈伯韬·光绪五年生·民国五年九月十五卒<br>
-      念慈夫人·光绪八年生·光绪三十年八月十五卒<br>
-      ...<br><br>
-      最末一块<b>无字牌位</b>，前面有新近摆放的痕迹。你伸手触摸，<span class="scare">牌位突然倒下！</span><br><br>
-      牌位背面写着：<b>"二十年后·归来取命"</b>。`,
+    desc:`三十八块牌位，按生卒日期排列。你伸手触摸——<span class="scare">牌位冰凉刺骨，像摸到死人的皮肤。</span><br><br>
+      最末尾一块<b>无字牌位</b>，前面有新近摆放的痕迹——<span class="scare">有人在等你。或者说，有东西在等你。</span><br><br>
+      你伸手触摸，<span class="scare">牌位突然倒下！</span>与此同时，<b>三十七块牌位同时缓缓转向你</b>，像三十七双眼睛在黑暗中看着你。<br><br>
+      无字牌位背面写着：<b>"二十年后·归来取命"</b>。<br><br>
+      <span class="scare">牌位上"长"出了湿漉漉的黑发，正缓缓生长，缠绕你的手。</span>`,
     choices:[
-      {text:'立刻退出祠堂', next:'hall', effect:{san:-15}, flag:'saw_tablet'},
+      {text:'甩掉头发退出祠堂', next:'hall', effect:{san:-15, hp:-5}, flag:'saw_tablet'},
       {text:'镇定地放好牌位', next:'shrine', effect:{san:-5}}
     ]
   },
@@ -659,17 +977,21 @@ const SCENES = {
     mood:'tense',
     desc:`你用蜡烛点燃三炷香，插在香炉中。青烟袅袅升起。<br><br>
       心中默念："陈家亡魂，林墨前来调查真相，无意冒犯。若有冤情，请示下..."<br><br>
-      香烟突然聚成一缕，朝地窖方向飘去。<br><br>理智值+5。`,
+      香烟突然聚成一缕，<span class="scare">化作一只半透明的手，朝地窖方向指去，然后消散。</span><br><br>理智值+5。<br><br>
+      <span class="scare">你听见身后有稚嫩的女童声音：</span><br>
+      <b>"大哥哥...她在井里等你...很久很久了..."</b>`,
     choices:[
       {text:'跟随香烟去地窖', next:'cellar', effect:{san:5}, flag:'prayed'}
     ]
   },
   cellar: {
-    title:'第七幕·地窖',
+    title:'第七幕·地窖 · 棺中无人',
     mood:'danger',
-    desc:`地窖阴冷潮湿，墙上挂着一盏油灯，你点燃它。火光照亮整个地窖——<br><br>
-      <span class="scare">地窖中央摆着一具黑漆棺材！</span>棺盖半开，里面是空的。<br><br>
-      棺材旁有一张木桌，桌上放着一本<b class="clue">账本</b>和一把<b class="clue">剪刀</b>。墙上挂着一幅八卦图，中央有个凹槽。`,
+    desc:`地窖阴冷潮湿，墙上挂着一盏油灯，你点燃它。<span class="scare">火光却照不亮地窖的角落——黑暗在那里凝结，像固体一样。</span><br><br>
+      <span class="scare">地窖中央摆着一具黑漆棺材！</span>棺盖半开，里面是空的。<span class="scare">但棺材内壁上有无数道抓痕，像是有人从内部抓出来的，指甲嵌在木头里，断了几根。</span><br><br>
+      棺材旁有一张木桌，桌上放着一本<b class="clue">账本</b>和一把<b class="clue">剪刀</b>。<span class="scare">账本翻开的一页上，写着"三十八人"四个字，字迹正从红变黑。</span><br><br>
+      墙上挂着一幅八卦图，中央有个凹槽。<span class="scare">八卦图在缓缓自转，反方向。</span><br><br>
+      <span class="scare">你感觉有什么东西在棺材里面看着你——即使里面是空的。</span>`,
     choices:[
       {text:'查看账本', next:'cellar_book', once:true},
       {text:'拿剪刀', next:'cellar', give:'knife', msg:'获得：剪刀 ✂', once:true},
@@ -710,39 +1032,43 @@ const SCENES = {
     ]
   },
   attic: {
-    title:'第八幕·阁楼',
+    title:'第八幕·阁楼 · 血债血偿',
     mood:'danger',
-    desc:`阁楼堆满旧物。中央一张八仙桌，桌上放着一只<b class="clue">红木匣子</b>，匣子上有一行字：<b>"血债血偿·三十八命"</b>。<br><br>
-      阁楼窗户大开，风灌进来，吹得窗帘乱舞。窗外雨声如注。<br><br>
-      <span class="scare">突然，窗户"砰"地关上！</span>窗帘后似乎有人影晃动...`,
+    desc:`阁楼堆满旧物。<span class="scare">角落里有一个秋千在无人自荡，发出吱嘎吱嘎的声音。</span><br><br>
+      中央一张八仙桌，桌上放着一只<b class="clue">红木匣子</b>，匣子上有一行字：<b>"血债血偿·三十八命"</b>。<span class="scare">字在流血，顺着桌腿流到地上。</span><br><br>
+      阁楼窗户大开，风灌进来。<span class="scare">窗帘上印着一个人形轮廓，像是有人站在窗后，但屋里没有人在那里。</span><br><br>
+      <span class="scare">突然，窗户"砰"地关上！</span>窗帘后有人影晃动...<span class="scare">而且不止一个影子——是三十八个。</span>`,
     choices:[
       {text:'查看红木匣子', next:'attic_box'},
       {text:'查看窗帘后', next:'attic_ghost'},
-      {text:'冲下阁楼', next:'hall', effect:{san:-10}}
+      {text:'冲下阁楼', next:'hall', effect:{san:-15}}
     ]
   },
   attic_box: {
     title:'第八幕·红木匣子',
     mood:'danger',
-    desc:`匣子没锁，轻轻一推就开了。里面是一张<b class="clue">泛黄的契约</b>：<br><br>
+    desc:`你走近匣子。<span class="scare">匣子自行打开。</span><br><br>
+      里面一张泛黄的契约，<span class="scare">写满了黑色的字，字迹在扭动。</span><br><br>
       <b>"陈伯韬与井中之人立约：<br>
       予汝三十八年阳寿，换陈家二十年安宁。<br>
       二十年期满，三十八命归汝。<br>
-      立约人：陈伯韬<br>
-      见证：井中念慈<br>
-      光绪三十年八月十五"</b><br><br>
-      原来如此！陈伯韬用契约向亡妻换二十年阳寿，期满以全家陪葬。`,
+      立约人：陈伯韬（手印）<br>
+      见证：井中念慈（手印）"</b><br><br>
+      你读到最后一行——<span class="scare">"见证人"的手印是一只血手印，还在往下滴血。</span><br><br>
+      你抬起头——<span class="scare">看见那三十八个影子正在阁楼的墙面上向你围拢。</span>`,
     choices:[
-      {text:'收起契约', next:'attic', effect:{san:-15}, clue:'contract', flag:'know_contract'}
+      {text:'收起契约，冲下楼', next:'hall', effect:{san:-20}, clue:'contract', flag:'know_contract'}
     ]
   },
   attic_ghost: {
     title:'第八幕·窗帘之后',
     mood:'danger',
     desc:`你猛地拉开窗帘——<br><br>
-      <b class="scare">一个白衣女子背对着你，长发垂地，浑身湿透！</b><br><br>
-      她缓缓转头，<span class="scare">露出一张没有五官的脸！</span>只有不断滴水的黑发。<br><br>
-      "还...我...命..."`,
+      <b class="scare">一个白衣女子紧贴窗户站着，脸压在玻璃上，五官扁平变形。</b><br><br>
+      她不是从屋里看进来的——<b>她在窗外的雨夜中，悬在半空。</span></b><br><br>
+      玻璃开始龟裂，<span class="scare">裂痕组成了三个字：</span><br>
+      <b>"还...我...命..."</b><br><br>
+      玻璃碎裂！<span class="scare">一只苍白的手臂从窗外伸进来，抓住你的衣领！</span>`,
     choices:[
       {text:'使用桃木符咒', next:'attic_amulet', require:'amulet'},
       {text:'使用剪刀', next:'attic_knife', require:'knife'},
@@ -752,27 +1078,30 @@ const SCENES = {
   attic_amulet: {
     title:'第八幕·符咒镇邪',
     mood:'tense',
-    desc:`你举起桃木符咒，符咒发出金光！白衣女子惨叫一声，化作青烟消散。<br><br>
-      地上留下一根<b class="clue">湿漉漉的长发</b>，和一把<b class="clue">红绳钥匙</b>。`,
+    desc:`你举起桃木符咒，符咒发出刺目的金光！女鬼尖叫，声音像指甲划过黑板。<br><br>
+      她的手臂缩回窗外，玻璃恢复原状。<span class="scare">但玻璃上那三个血字还在：</span><br>
+      <span class="scare">"还...我...命..."</span><br><br>
+      地上留下一滩水渍，水中有一把<b class="clue">红绳钥匙</b>。`,
     choices:[
-      {text:'捡起长发与钥匙', next:'attic', give:['ghosthair','key_red'], remove:'amulet', msg:'获得：女鬼头发、红绳钥匙 🔑 - 消耗：桃木符咒'}
+      {text:'捡起钥匙', next:'attic', give:'key_red', remove:'amulet', msg:'获得：红绳钥匙 🔑 消耗：桃木符咒（符咒已用完）'}
     ]
   },
   attic_knife: {
     title:'第八幕·剪刀挥击',
     mood:'danger',
-    desc:`你挥剪刀刺向女鬼——剪刀穿透她的身体，却像刺入水中。<br><br>
-      女鬼咯咯笑，<span class="scare">冰冷的手扼住你的喉咙！</span>`,
+    desc:`你挥剪刀刺向女鬼——剪刀穿透她的手臂，<span class="scare">但刺中你的却是你自己——她的身体是镜面，你刺伤了自己的倒影。</span><br><br>
+      你的手臂上出现了一道真实的伤口，血流如注。女鬼咯咯笑，<span class="scare">冰冷的手扼住你的喉咙！</span>`,
     choices:[
-      {text:'挣扎', next:'attic_flee', effect:{hp:-40, san:-20}},
-      {text:'弃剪逃跑', next:'hall', effect:{hp:-20, san:-15}, remove:'knife'}
+      {text:'挣扎', next:'attic_flee', effect:{hp:-45, san:-30}},
+      {text:'弃剪逃跑', next:'hall', effect:{hp:-25, san:-20}, remove:'knife'}
     ]
   },
   attic_flee: {
     title:'第八幕·逃出阁楼',
     mood:'danger',
-    desc:`你跌跌撞撞冲下阁楼，身后女鬼的笑声不断。<br><br>
-      <span class="scare">她没有追来，但你感觉她正在看着你。</span>`,
+    desc:`你跌跌撞撞冲下阁楼，身后女鬼的尖笑在楼道里回荡。<br><br>
+      <span class="scare">楼梯上的每一级台阶都在你踩过的瞬间变成了人脸——青紫的、扭曲的、无声尖叫的脸。</span><br><br>
+      你终于逃到前厅。<span class="scare">但每道门后，都有一个白色影子在等你。</span>`,
     choices:[
       {text:'回到前厅', next:'hall'}
     ]
@@ -822,40 +1151,55 @@ const ENDINGS = {
     name:'【永困结局】天明未竟',
     desc:`你转身离开密室。但无论怎么走，都回到同一个地方。<br><br>
       天渐渐亮了。你听见远处鸡鸣，却始终找不到出口。<br><br>
-      古宅像是一个迷宫，将你困在其中。<br><br>
-      三天后，搜救队在外面发现你的相机——里面只有一张照片：<b>陈家三十八人的合影</b>，包括你。`,
-    rating:'⭐⭐ 永困结局'
+      古宅像是一个活物，它的走廊在不断变化——<b>你走过的每一道门，都变成了一堵墙。</b>你回头，来路已封死。<br><br>
+      三天后，搜救队在古宅门口发现你的相机——里面只有一张照片：<b>陈家三十八人的合影</b>，最末尾多了一个你。<br><br>
+      但你并没有消失。你还在古宅里游荡——和其他三十八个亡魂一起。<span class="scare">你现在也是他们中的一员了。</span><br><br>
+      <b>"欢迎...第三十九位...陈家人..."</b>`,
+    rating:'🕯 永困结局'
   },
   destroy: {
     name:'【疯癫结局】理智崩塌',
-    desc:`你疯狂地毁掉无头女尸。<br><br>
-      念慈的怨气爆发，三十八个亡魂从四面八方涌出，将你围住。<br><br>
-      你尖叫，但无人听见。<br><br>
-      第二天清晨，警察在古宅前厅发现你——你蜷缩在角落，口中念念有词："三十八人...三十八条命...我也有份...我也有份..."<br><br>
-      你被送入疯人院，终日对着空气磕头。半年后死在病房，死时面带微笑。`,
-    rating:'⭐ 疯癫结局'
+    desc:`你疯狂地扑向无头女尸。<br><br>
+      你的手触碰到她的瞬间——<span class="scare">她的尸体炸裂成无数黑色的水蛭，爬满你的全身。</span>钻入你的皮肤，咬噬你的内脏。<br><br>
+      念慈的怨气化作实质，无形的力量将你举到半空。<span class="scare">你听见三十八个声音同时开口——她们在念你的名字。</span><br><br>
+      "林...墨..."<br>
+      "林...墨..."<br>
+      "林...墨..."<br><br>
+      第二天清晨，警察在古宅前厅发现你。<b>你蜷缩在角落，浑身没有伤口，但你的头发全白了。</b><br><br>
+      你口中念念有词："三十八人...三十八条命...我是第三十九个...我也有份...我也有份..."<br><br>
+      你被送入疯人院，终日对着空气磕头。半年后死在病房，死时面带微笑——<span class="scare">因为你在天花板上看到念慈在向你招手。</span>`,
+    rating:'🕯 疯癫结局'
   },
   death: {
     name:'【死亡结局】命丧古宅',
-    desc:`你的生命值耗尽，倒在了古宅的某个角落。<br><br>
-      无人知晓你曾来过。匿名信的真正主人，永远不会出现。<br><br>
-      二十年后，又有一个年轻人收到匿名信，来到陈家老宅...`,
-    rating:'⭐ 死亡结局'
+    desc:`你的生命随着血液一同流失。倒下的那一刻，你看见天花板变成了透明的——<br><br>
+      <span class="scare">三十八张脸围着你，低头看你。</span>她们在笑，笑容整齐划一，像戴着一模一样的假面。<br><br>
+      "第...三...十...九...个..."<br><br>
+      她们齐声歌唱那首童谣：<b>"小白菜啊，地里黄啊..."</b><br><br>
+      你的血被冰冷的手指沾起，在墙上写下：<br>
+      <b style="color:#a02020;">"陈家第三十九口——记者林墨"</b><br><br>
+      次日，警察在古宅发现你的尸体。验尸报告：<b>"死亡时间：二十年前。"</b>`,
+    rating:'🕯 死亡结局'
   },
   madness: {
     name:'【疯癫结局】理智归零',
-    desc:`你的理智值归零。<br><br>
-      你开始看见陈家三十八人围着你跳舞，看见念慈向你招手。<br><br>
-      你大笑，狂笑，脱下衣服在古宅里奔跑。<br><br>
-      从此，陈家老宅多了一个游荡的疯子，与三十八个亡魂一同...永远。`,
-    rating:'⭐ 疯癫结局'
+    desc:`你的理智终于崩溃了。<br><br>
+      你开始大笑，狂笑，拍手唱歌。在陈家老宅的各个房间里游荡，和空气说话，与影子跳舞。<br><br>
+      你看见三十八人围坐八仙桌吃饭，你坐在第三十九个座位上。<span class="scare">他们给你夹菜，菜是人的手指。</span>你吃得很香。<br><br>
+      二十年后，一个年轻人来到陈家老宅，在客厅遇到一个疯癫的老乞丐——那乞丐抓住他的手，疯疯癫癫地说：<br>
+      <b>"第三十九个在吃饭...第四十个今天来了...欢迎...欢迎..."</b><br><br>
+      老乞丐抬起头——<span class="scare">那张脸是你的。</span>`,
+    rating:'🕯 疯癫结局'
   },
   no_truth: {
-    name:'【未竟结局】真相未明',
-    desc:`你退出了古宅，但真相永远埋葬在那里。<br><br>
-      匿名信的主人再未联系你。陈家血案依旧是未解之谜。<br><br>
-      但你夜夜梦见古宅，梦见井中的白衣女子，她不断重复："为何不来...为何不来..."`,
-    rating:'⭐⭐ 未竟结局'
+    name:'【未竟结局】真相永埋',
+    desc:`你退出了古宅。身后，"陈府"的大门在风雨中缓缓合上。<br><br>
+      你回头——<span class="scare">门缝中伸出一只苍白湿漉漉的手，手指一根一根地扣住门沿。</span><br><br>
+      门开了半尺宽，一只没有瞳孔的眼睛从门缝中看着你。<b>"我会一直等你...永远..."</b><br><br>
+      第二天你醒来，发现自己的相机里多了几张照片：<b>陈家三十八人的合影，多了一个你。</b>你站在最末尾，面容模糊，穿着白衣。<br><br>
+      半年后，你的同事探望你。你住在精神病院里，整日对着墙壁说：<b>"我不是第三十九个...不是...不是..."</b><br><br>
+      但你每天夜里，都会坐在床上，一下一下地梳头。你没有梳子——<span class="scare">你的手拿着看不见的梳子，梳过不存在的长发。</span>`,
+    rating:'🕯 未竟结局'
   }
 };
 
@@ -921,6 +1265,9 @@ function renderGame() {
     <div class="stat-item">🧠理智 <div class="stat-bar san-bar ${state.san<30?'low':''}"><div style="width:${state.san}%"></div></div> <span class="val">${state.san}</span></div>
     <div class="stat-item">🔋电量 <div class="stat-bar bat-bar ${state.battery<20?'low':''}"><div style="width:${state.battery}%"></div></div> <span class="val">${state.battery}</span></div>
     <div class="stat-item">📍线索: <span class="val">${state.cluesFound.length}</span>/7</div>
+    <div class="stat-item">👻仇恨: <span class="val" style="color:${state.ghostAggro>50?'#ff2020':'#c08040'};">${state.ghostAggro}</span></div>
+    <div class="stat-item">😱恐惧: <span class="val" style="color:${state.fearLevel>=7?'#ff2020':'#c08040'};">Lv${state.fearLevel}</span></div>
+    ${state.ghostChasing ? '<div class="stat-item" style="color:#ff2020;animation:dangerPulse 1s infinite;">⚠ 女鬼追击中！</div>' : ''}
   `;
 
   // 叙述
@@ -1019,6 +1366,42 @@ function makeChoice(c) {
     showToast(c.msg || '需要特定物品');
     return;
   }
+  // 难度系统：每个动作消耗电量、累积恐惧、累积女鬼仇恨
+  state.turnCount++;
+  // 手电电量持续消耗（除安全区）
+  const safeScenes = ['gate','hall','title'];
+  if (!safeScenes.includes(state.sceneId) && state.turnCount % 3 === 0) {
+    state.battery = Math.max(0, state.battery - 3);
+  }
+  // 恐惧等级随理智下降而上升
+  state.fearLevel = Math.floor((100 - state.san) / 10);
+  // 女鬼仇恨随访问恐怖场景累积
+  const dangerScenes = ['well_peek','shrine','cellar','attic','attic_ghost','cellar_bagua'];
+  if (dangerScenes.includes(c.next)) {
+    state.ghostAggro += 15;
+  }
+  // 女鬼追击触发：仇恨>50且进入危险场景
+  if (state.ghostAggro > 50 && !state.ghostChasing && dangerScenes.includes(c.next) && Math.random() < 0.4) {
+    state.ghostChasing = true;
+    if (music.playing) music.stinger();
+    jumpscare('👹');
+    showToast('<b style="color:#ff2020;">女鬼开始追击你！快逃！</b>');
+  }
+  // 女鬼追击中：每回合15%概率被追上
+  if (state.ghostChasing && Math.random() < 0.18) {
+    state.hp -= 25;
+    state.san -= 20;
+    if (music.playing) music.stinger();
+    jumpscare('👻');
+    showToast('<b style="color:#ff2020;">女鬼追上了你！-25生命 -20理智</b>');
+    if (state.hp <= 0) { state.ending = 'death'; state.screen = 'ending'; render(); return; }
+    if (state.san <= 0) { state.ending = 'madness'; state.screen = 'ending'; render(); return; }
+  }
+  // 回到安全区会解除追击
+  if (safeScenes.includes(c.next)) {
+    state.ghostChasing = false;
+    state.ghostAggro = Math.max(0, state.ghostAggro - 10);
+  }
   if (c.effect) {
     if (c.effect.hp) state.hp = Math.max(0, Math.min(100, state.hp + c.effect.hp));
     if (c.effect.san) state.san = Math.max(0, Math.min(100, state.san + c.effect.san));
@@ -1038,9 +1421,21 @@ function makeChoice(c) {
   if (c.flag && !state.flags.includes(c.flag)) {
     state.flags.push(c.flag);
   }
-  // 随机跳吓
-  if (Math.random() < 0.15 && state.san < 70) {
-    jumpscare(['💀','👻','🕷','🩸','👁'][Math.floor(Math.random()*5)]);
+  // 随机跳吓：恐惧等级越高概率越大
+  const jumpChance = 0.10 + state.fearLevel * 0.04;
+  if (Math.random() < jumpChance && state.san < 75) {
+    const scares = ['💀','👻','🕷','🩸','👁','😰','☠','🪦'];
+    jumpscare(scares[Math.floor(Math.random()*scares.length)]);
+    state.san = Math.max(0, state.san - 3);
+  }
+  // 理智过低时随机耳语
+  if (state.san < 40 && music.playing && Math.random() < 0.3) {
+    music.whisper();
+  }
+  // 电量耗尽：全黑，理智快速下降
+  if (state.battery === 0 && !hasItem('candle') && state.turnCount % 2 === 0) {
+    state.san = Math.max(0, state.san - 5);
+    showToast('<b style="color:#ff2020;">手电没电了！黑暗中理智流失...</b>');
   }
   state.sceneId = c.next;
   render();
@@ -1099,15 +1494,20 @@ function renderGallery() {
 
 function resetGame() {
   state.sceneId = 'gate';
-  state.hp = 100;
-  state.san = 100;
-  state.battery = 80;
+  state.hp = 90;
+  state.san = 80;
+  state.battery = 60;
   state.inventory = [];
   state.flags = [];
   state.cluesFound = [];
   state.visitedScenes = [];
   state.ending = null;
   state.history = [];
+  state.ghostAggro = 0;
+  state.fearLevel = 0;
+  state.turnCount = 0;
+  state.ghostChasing = false;
+  state.lastSafeScene = 'gate';
 }
 
 // ---------- 标题屏按钮 ----------
